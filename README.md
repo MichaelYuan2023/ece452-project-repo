@@ -8,7 +8,7 @@
 * Micheal is our technical lead and is reponsible for the code quality and items in the production level code. 
 * Shoheb leads the front-end design.
 * Aryan leads the back-end design.
-* Damare leads the integration and end-to-end testing of the app.
+* Ronald leads the integration and end-to-end testing of the app.
 * Kevin leads the design and maintenance of the database.
 
 ## Communication
