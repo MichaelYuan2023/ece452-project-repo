@@ -1,5 +1,8 @@
 # ece452-project-repo
 
+# AI Disclosure Statement
+AID Statement: Artificial Intelligence Tool: Claude Code; Execution: Coding assistance for features, debugging, and testing.
+
 # Team Contract
 
 ## Roles
