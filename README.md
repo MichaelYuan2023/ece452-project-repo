@@ -8,7 +8,7 @@ AID Statement: Artificial Intelligence Tool: Claude Code; Execution: Coding assi
 ## Roles
 
 * Happy is our team lead and is responsible for coordinating the project.
-* Micheal is our technical lead and is reponsible for the code quality and items in the production level code. 
+* Micheal is our technical lead and is responsible for the code quality and items in the production level code.
 * Shoheb leads the front-end design.
 * Aryan leads the back-end design.
 * Ronald leads the integration and end-to-end testing of the app.
@@ -17,7 +17,7 @@ AID Statement: Artificial Intelligence Tool: Claude Code; Execution: Coding assi
 ## Communication
 
 * Our team will use Discord group chat to communicate project-related matters.
-* We will meet every week on Thursday at 8pm. 
+* We will meet every week on Thursday at 8pm.
 
 ## Meetings
 
