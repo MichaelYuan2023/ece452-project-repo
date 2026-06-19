@@ -8,8 +8,10 @@ import com.example.houseflow.model.ChoreAssignment
 interface ChoreRepository {
     fun getChores(householdId: String): List<Chore>
     fun addChore(chore: Chore)
+    fun updateChore(chore: Chore)
     fun deleteChore(choreId: String)
     fun getAssignments(householdId: String): List<ChoreAssignment>
     fun addAssignment(assignment: ChoreAssignment)
+    fun updateAssignment(assignment: ChoreAssignment)
     fun updateAssignmentStatus(assignmentId: String, status: AssignmentStatus)
 }

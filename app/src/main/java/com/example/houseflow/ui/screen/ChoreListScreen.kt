@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -59,6 +60,7 @@ fun ChoreListScreen(vm: AppViewModel) {
     val household by vm.household.collectAsState()
     val assignmentsRun by vm.assignmentsRun.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
+    var editingChore by remember { mutableStateOf<Chore?>(null) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Chores") }) },
@@ -96,7 +98,12 @@ fun ChoreListScreen(vm: AppViewModel) {
                         val completedCount = assignments.count {
                             it.choreId == chore.id && it.status == AssignmentStatus.COMPLETED
                         }
-                        ChoreRow(chore, completedCount) { vm.deleteChore(chore.id) }
+                        ChoreRow(
+                            chore = chore,
+                            completedCount = completedCount,
+                            onEdit = { editingChore = chore },
+                            onDelete = { vm.deleteChore(chore.id) }
+                        )
                     }
                 }
             }
@@ -113,11 +120,24 @@ fun ChoreListScreen(vm: AppViewModel) {
                 }
             )
         }
+
+        editingChore?.let { chore ->
+            CreateChoreDialog(
+                householdId = chore.householdId,
+                createdByRoommateId = chore.createdByRoommateId,
+                existing = chore,
+                onDismiss = { editingChore = null },
+                onConfirm = { updated ->
+                    vm.updateChore(updated)
+                    editingChore = null
+                }
+            )
+        }
     }
 }
 
 @Composable
-private fun ChoreRow(chore: Chore, completedCount: Int, onDelete: () -> Unit) {
+private fun ChoreRow(chore: Chore, completedCount: Int, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -139,6 +159,9 @@ private fun ChoreRow(chore: Chore, completedCount: Int, onDelete: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall
                 )
             }
+            IconButton(onClick = onEdit) {
+                Icon(Icons.Default.Edit, contentDescription = "Edit chore")
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete chore")
             }
@@ -150,20 +173,21 @@ private fun ChoreRow(chore: Chore, completedCount: Int, onDelete: () -> Unit) {
 private fun CreateChoreDialog(
     householdId: String,
     createdByRoommateId: String,
+    existing: Chore? = null,
     onDismiss: () -> Unit,
     onConfirm: (Chore) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var selectedDay by remember { mutableIntStateOf(0) }
-    var selectedHour by remember { mutableIntStateOf(10) }
-    var effortScore by remember { mutableFloatStateOf(2f) }
-    var timeSensitive by remember { mutableStateOf(false) }
-    var selectedFrequency by remember { mutableStateOf(ChoreFrequency.WEEKLY) }
+    var name by remember { mutableStateOf(existing?.name ?: "") }
+    var description by remember { mutableStateOf(existing?.description ?: "") }
+    var selectedDay by remember { mutableIntStateOf(existing?.dueDayOfWeek ?: 0) }
+    var selectedHour by remember { mutableIntStateOf(existing?.dueHour ?: 10) }
+    var effortScore by remember { mutableFloatStateOf(existing?.effortScore?.toFloat() ?: 2f) }
+    var timeSensitive by remember { mutableStateOf(existing?.isTimeSensitive ?: false) }
+    var selectedFrequency by remember { mutableStateOf(existing?.frequency ?: ChoreFrequency.WEEKLY) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New Chore") },
+        title = { Text(if (existing == null) "New Chore" else "Edit Chore") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -208,7 +232,7 @@ private fun CreateChoreDialog(
                     if (name.isNotBlank()) {
                         onConfirm(
                             Chore(
-                                id = UUID.randomUUID().toString(),
+                                id = existing?.id ?: UUID.randomUUID().toString(),
                                 householdId = householdId,
                                 createdByRoommateId = createdByRoommateId,
                                 name = name.trim(),
@@ -222,7 +246,7 @@ private fun CreateChoreDialog(
                         )
                     }
                 }
-            ) { Text("Add") }
+            ) { Text(if (existing == null) "Add" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

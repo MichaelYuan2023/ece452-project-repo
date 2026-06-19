@@ -17,6 +17,11 @@ class InMemoryChoreRepository : ChoreRepository {
         chores.add(chore)
     }
 
+    override fun updateChore(chore: Chore) {
+        val idx = chores.indexOfFirst { it.id == chore.id }
+        if (idx != -1) chores[idx] = chore
+    }
+
     override fun deleteChore(choreId: String) {
         chores.removeAll { it.id == choreId }
         assignments.removeAll { it.choreId == choreId }
@@ -27,6 +32,11 @@ class InMemoryChoreRepository : ChoreRepository {
 
     override fun addAssignment(assignment: ChoreAssignment) {
         assignments.add(assignment)
+    }
+
+    override fun updateAssignment(assignment: ChoreAssignment) {
+        val idx = assignments.indexOfFirst { it.id == assignment.id }
+        if (idx != -1) assignments[idx] = assignment
     }
 
     override fun updateAssignmentStatus(assignmentId: String, status: AssignmentStatus) {

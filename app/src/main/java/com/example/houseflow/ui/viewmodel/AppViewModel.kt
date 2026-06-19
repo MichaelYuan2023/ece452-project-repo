@@ -104,6 +104,11 @@ class AppViewModel(
         refreshChores()
     }
 
+    fun updateChore(chore: Chore) {
+        choreRepo.updateChore(chore)
+        refreshChores()
+    }
+
     fun deleteChore(choreId: String) {
         choreRepo.deleteChore(choreId)
         refreshChores()
@@ -150,6 +155,36 @@ class AppViewModel(
                 val busyByRoommate = roommates.associate { it.id to householdRepo.getBusyBlocks(it.id) }
                 val next = AssignmentAlgorithm.assignOne(chore, roommates, busyByRoommate, history, nextWeekStart)
                 choreRepo.addAssignment(next)
+            }
+        }
+        refreshAssignments()
+    }
+
+    fun swapAssignment(assignmentId: String) {
+        val householdId = _household.value?.id ?: return
+        val current = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return
+        val chore = _chores.value.find { it.id == current.choreId } ?: return
+        val candidates = _roommates.value.filter { it.id != current.assignedToRoommateId }
+        if (candidates.isEmpty()) return
+
+        val busyByRoommate = candidates.associate { it.id to householdRepo.getBusyBlocks(it.id) }
+        val history = choreRepo.getAssignments(householdId)
+        val reassigned = AssignmentAlgorithm
+            .assignOne(chore, candidates, busyByRoommate, history, current.weekStart)
+            .copy(id = current.id)
+        choreRepo.updateAssignment(reassigned)
+        refreshAssignments()
+    }
+
+    fun refreshOverdue() {
+        val householdId = _household.value?.id ?: return
+        val now = System.currentTimeMillis()
+        val choresById = _chores.value.associateBy { it.id }
+        choreRepo.getAssignments(householdId).forEach { a ->
+            if (a.status == AssignmentStatus.PENDING) {
+                val chore = choresById[a.choreId] ?: return@forEach
+                val due = a.weekStart + chore.dueDayOfWeek * 86_400_000L + chore.dueHour * 3_600_000L
+                if (now > due) choreRepo.updateAssignmentStatus(a.id, AssignmentStatus.MISSED)
             }
         }
         refreshAssignments()

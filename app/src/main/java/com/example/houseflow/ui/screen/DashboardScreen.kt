@@ -16,10 +16,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -44,6 +46,8 @@ fun DashboardScreen(vm: AppViewModel) {
             it.status == AssignmentStatus.COMPLETED &&
             it.weekStart == vm.weekStart
     }
+
+    LaunchedEffect(Unit) { vm.refreshOverdue() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("This Week") }) }
@@ -90,7 +94,8 @@ fun DashboardScreen(vm: AppViewModel) {
                         dueHour = chore?.dueHour ?: 0,
                         assigneeName = assignee?.name ?: "Unknown",
                         isMyChore = isMyChore,
-                        onMarkComplete = { vm.markComplete(assignment.id) }
+                        onMarkComplete = { vm.markComplete(assignment.id) },
+                        onSwap = { vm.swapAssignment(assignment.id) }
                     )
                 }
             }
@@ -106,9 +111,11 @@ private fun AssignmentCard(
     dueHour: Int,
     assigneeName: String,
     isMyChore: Boolean,
-    onMarkComplete: () -> Unit
+    onMarkComplete: () -> Unit,
+    onSwap: () -> Unit
 ) {
     val containerColor = when {
+        assignment.status == AssignmentStatus.MISSED -> MaterialTheme.colorScheme.errorContainer
         assignment.hasConflict -> MaterialTheme.colorScheme.errorContainer
         assignment.status == AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.secondaryContainer
         else -> MaterialTheme.colorScheme.surface
@@ -158,6 +165,10 @@ private fun AssignmentCard(
                 Spacer(Modifier.height(8.dp))
                 Button(onClick = onMarkComplete, modifier = Modifier.fillMaxWidth()) {
                     Text("Mark Complete")
+                }
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(onClick = onSwap, modifier = Modifier.fillMaxWidth()) {
+                    Text("Can't do this")
                 }
             }
         }
