@@ -40,7 +40,9 @@ fun DashboardScreen(vm: AppViewModel) {
     val currentUser by vm.currentUser.collectAsState()
 
     val completedCount = assignments.count {
-        it.assignedToRoommateId == currentUser?.id && it.status == AssignmentStatus.COMPLETED
+        it.assignedToRoommateId == currentUser?.id &&
+            it.status == AssignmentStatus.COMPLETED &&
+            it.weekStart == vm.weekStart
     }
 
     Scaffold(

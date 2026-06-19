@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.ui.viewmodel.AppViewModel
@@ -53,6 +54,7 @@ private val FREQUENCIES = ChoreFrequency.entries.map { it.name }
 @Composable
 fun ChoreListScreen(vm: AppViewModel) {
     val chores by vm.chores.collectAsState()
+    val assignments by vm.assignments.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
     val household by vm.household.collectAsState()
     val assignmentsRun by vm.assignmentsRun.collectAsState()
@@ -91,7 +93,10 @@ fun ChoreListScreen(vm: AppViewModel) {
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(chores, key = { it.id }) { chore ->
-                        ChoreRow(chore) { vm.deleteChore(chore.id) }
+                        val completedCount = assignments.count {
+                            it.choreId == chore.id && it.status == AssignmentStatus.COMPLETED
+                        }
+                        ChoreRow(chore, completedCount) { vm.deleteChore(chore.id) }
                     }
                 }
             }
@@ -112,7 +117,7 @@ fun ChoreListScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun ChoreRow(chore: Chore, onDelete: () -> Unit) {
+private fun ChoreRow(chore: Chore, completedCount: Int, onDelete: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -127,6 +132,10 @@ private fun ChoreRow(chore: Chore, onDelete: () -> Unit) {
                 )
                 Text(
                     "Effort: ${chore.effortScore}/5  ·  ${chore.frequency.name.lowercase()}",
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    "Completed ${completedCount}×",
                     style = MaterialTheme.typography.labelSmall
                 )
             }

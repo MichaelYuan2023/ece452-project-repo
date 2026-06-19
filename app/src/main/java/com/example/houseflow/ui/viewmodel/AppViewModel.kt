@@ -121,7 +121,22 @@ class AppViewModel(
     }
 
     fun markComplete(assignmentId: String) {
+        val householdId = _household.value?.id ?: return
+        val completed = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return
         choreRepo.updateAssignmentStatus(assignmentId, AssignmentStatus.COMPLETED)
+
+        val chore = _chores.value.find { it.id == completed.choreId }
+        val roommates = _roommates.value
+        if (chore != null && roommates.isNotEmpty()) {
+            val nextWeekStart = completed.weekStart + 7L * 24 * 3600 * 1000
+            val history = choreRepo.getAssignments(householdId)
+            val alreadyScheduled = history.any { it.choreId == chore.id && it.weekStart == nextWeekStart }
+            if (!alreadyScheduled) {
+                val busyByRoommate = roommates.associate { it.id to householdRepo.getBusyBlocks(it.id) }
+                val next = AssignmentAlgorithm.assignOne(chore, roommates, busyByRoommate, history, nextWeekStart)
+                choreRepo.addAssignment(next)
+            }
+        }
         refreshAssignments()
     }
 

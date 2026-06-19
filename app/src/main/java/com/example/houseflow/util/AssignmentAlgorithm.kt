@@ -28,7 +28,7 @@ object AssignmentAlgorithm {
         return newAssignments
     }
 
-    private fun assignOne(
+    fun assignOne(
         chore: Chore,
         roommates: List<Roommate>,
         busyBlocksByRoommate: Map<String, List<BusyBlock>>,
