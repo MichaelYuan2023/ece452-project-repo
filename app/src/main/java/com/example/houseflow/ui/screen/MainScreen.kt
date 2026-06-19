@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Icon
@@ -35,12 +36,18 @@ fun MainScreen(vm: AppViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.List, contentDescription = null) },
-                    label = { Text("Chores") }
+                    icon = { Icon(Icons.Default.Group, contentDescription = null) },
+                    label = { Text("Roommates") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
+                    icon = { Icon(Icons.Default.List, contentDescription = null) },
+                    label = { Text("Chores") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
                     icon = { Icon(Icons.Default.Home, contentDescription = null) },
                     label = { Text("Dashboard") }
                 )
@@ -50,8 +57,9 @@ fun MainScreen(vm: AppViewModel) {
         Box(modifier = Modifier.padding(padding)) {
             when (selectedTab) {
                 0 -> AvailabilityScreen(vm)
-                1 -> ChoreListScreen(vm)
-                2 -> DashboardScreen(vm)
+                1 -> RoommateAvailabilityScreen(vm)
+                2 -> ChoreListScreen(vm)
+                3 -> DashboardScreen(vm)
             }
         }
     }

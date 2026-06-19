@@ -37,6 +37,11 @@ class AppViewModel(
     private val _myBusyBlocks = MutableStateFlow<List<BusyBlock>>(emptyList())
     val myBusyBlocks: StateFlow<List<BusyBlock>> = _myBusyBlocks.asStateFlow()
 
+    // Busy blocks for every roommate in the household, keyed by roommate id.
+    // Powers the "see everyone's availability" calendar view.
+    private val _householdBusyBlocks = MutableStateFlow<Map<String, List<BusyBlock>>>(emptyMap())
+    val householdBusyBlocks: StateFlow<Map<String, List<BusyBlock>>> = _householdBusyBlocks.asStateFlow()
+
     private val _chores = MutableStateFlow<List<Chore>>(emptyList())
     val chores: StateFlow<List<Chore>> = _chores.asStateFlow()
 
@@ -62,6 +67,7 @@ class AppViewModel(
         householdRepo.addRoommateToHousehold(h.id, user)
         _household.value = h
         _roommates.value = householdRepo.getRoommates(h.id)
+        refreshHouseholdBlocks()
         return true
     }
 
@@ -70,15 +76,24 @@ class AppViewModel(
     fun addBusyBlock(block: BusyBlock) {
         householdRepo.addBusyBlock(block)
         refreshMyBlocks()
+        refreshHouseholdBlocks()
     }
 
     fun deleteBusyBlock(blockId: String) {
         householdRepo.deleteBusyBlock(blockId)
         refreshMyBlocks()
+        refreshHouseholdBlocks()
     }
 
     private fun refreshMyBlocks() {
         _myBusyBlocks.value = householdRepo.getBusyBlocks(_currentUser.value?.id ?: return)
+    }
+
+    private fun refreshHouseholdBlocks() {
+        val householdId = _household.value?.id ?: return
+        _householdBusyBlocks.value = householdRepo.getRoommates(householdId).associate { r ->
+            r.id to householdRepo.getBusyBlocks(r.id)
+        }
     }
 
     // --- Chores ---
