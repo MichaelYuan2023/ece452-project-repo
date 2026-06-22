@@ -11,6 +11,7 @@ import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
+import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.Roommate
 import com.example.houseflow.util.AssignmentAlgorithm
@@ -100,8 +101,8 @@ class AppViewModel(
 
     fun addChore(chore: Chore) {
         choreRepo.addChore(chore)
-        _assignmentsRun.value = false
         refreshChores()
+        runAssignments()
     }
 
     fun updateChore(chore: Chore) {
@@ -125,16 +126,55 @@ class AppViewModel(
             r.id to householdRepo.getBusyBlocks(r.id)
         }
         val history = choreRepo.getAssignments(household.id)
-        val alreadyAssignedIds = history.filter { it.weekStart == weekStart }.map { it.choreId }.toSet()
-        val toAssign = chores.filter { it.id !in alreadyAssignedIds }
+        val msPerDay = 86_400_000L
+        val weekEnd = weekStart + 7 * msPerDay
 
-        val newAssignments = AssignmentAlgorithm.assignAll(
-            chores = toAssign,
-            roommates = roommates,
-            busyBlocksByRoommate = busyBlocksByRoommate,
-            history = history,
-            weekStart = weekStart
-        )
+        val slots = mutableListOf<Pair<Chore, Long>>()
+        for (c in chores) {
+            when (c.frequency) {
+                ChoreFrequency.WEEKLY -> {
+                    if (history.none { it.choreId == c.id && it.weekStart == weekStart }) {
+                        slots.add(c to weekStart)
+                    }
+                }
+                ChoreFrequency.ONE_TIME -> {
+                    if (history.none { it.choreId == c.id }) {
+                        slots.add(c to (weekStart + c.dueDayOfWeek * msPerDay))
+                    }
+                }
+                ChoreFrequency.DAILY -> {
+                    var date = weekStart
+                    while (date < weekEnd) {
+                        val d = date
+                        if (history.none { it.choreId == c.id && it.weekStart == d }) {
+                            slots.add(c to date)
+                        }
+                        date += msPerDay
+                    }
+                }
+                ChoreFrequency.EVERY_N_DAYS -> {
+                    val interval = (c.intervalDays ?: 2) * msPerDay
+                    var date = weekStart + c.dueDayOfWeek * msPerDay
+                    while (date < weekEnd) {
+                        val d = date
+                        if (history.none { it.choreId == c.id && it.weekStart == d }) {
+                            slots.add(c to date)
+                        }
+                        date += interval
+                    }
+                }
+            }
+        }
+
+        val newAssignments = mutableListOf<ChoreAssignment>()
+        for ((chore, dueDate) in slots) {
+            val allHistory = history + newAssignments
+            val assignment = AssignmentAlgorithm.assignOne(
+                chore, roommates, busyBlocksByRoommate, allHistory, dueDate
+            )
+            newAssignments.add(assignment)
+        }
+
         newAssignments.forEach { choreRepo.addAssignment(it) }
         _assignmentsRun.value = true
         refreshAssignments()
@@ -147,8 +187,13 @@ class AppViewModel(
 
         val chore = _chores.value.find { it.id == completed.choreId }
         val roommates = _roommates.value
-        if (chore != null && roommates.isNotEmpty()) {
-            val nextWeekStart = completed.weekStart + 7L * 24 * 3600 * 1000
+        if (chore != null && chore.frequency != ChoreFrequency.ONE_TIME && roommates.isNotEmpty()) {
+            val msPerDay = 24L * 3600 * 1000
+            val nextWeekStart = completed.weekStart + when (chore.frequency) {
+                ChoreFrequency.DAILY -> msPerDay
+                ChoreFrequency.EVERY_N_DAYS -> (chore.intervalDays ?: 2) * msPerDay
+                else -> 7 * msPerDay
+            }
             val history = choreRepo.getAssignments(householdId)
             val alreadyScheduled = history.any { it.choreId == chore.id && it.weekStart == nextWeekStart }
             if (!alreadyScheduled) {
@@ -183,7 +228,11 @@ class AppViewModel(
         choreRepo.getAssignments(householdId).forEach { a ->
             if (a.status == AssignmentStatus.PENDING) {
                 val chore = choresById[a.choreId] ?: return@forEach
-                val due = a.weekStart + chore.dueDayOfWeek * 86_400_000L + chore.dueHour * 3_600_000L
+                val due = if (chore.frequency == ChoreFrequency.WEEKLY) {
+                    a.weekStart + chore.dueDayOfWeek * 86_400_000L + chore.dueHour * 3_600_000L
+                } else {
+                    a.weekStart + chore.dueHour * 3_600_000L
+                }
                 if (now > due) choreRepo.updateAssignmentStatus(a.id, AssignmentStatus.MISSED)
             }
         }

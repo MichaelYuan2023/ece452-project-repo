@@ -49,7 +49,14 @@ import java.util.UUID
 
 private val DAYS = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 private val HOURS = (0..23).map { h -> "%02d:00".format(h) }
-private val FREQUENCIES = ChoreFrequency.entries.map { it.name }
+private val FREQUENCY_LABELS = listOf("Daily", "Weekly", "Every N days", "One-time")
+
+private fun Chore.frequencyLabel(): String = when (frequency) {
+    ChoreFrequency.DAILY -> "daily"
+    ChoreFrequency.WEEKLY -> "weekly"
+    ChoreFrequency.EVERY_N_DAYS -> "every ${intervalDays ?: "?"} days"
+    ChoreFrequency.ONE_TIME -> "one-time"
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,7 +158,7 @@ private fun ChoreRow(chore: Chore, completedCount: Int, onEdit: () -> Unit, onDe
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "Effort: ${chore.effortScore}/5  ·  ${chore.frequency.name.lowercase()}",
+                    "Effort: ${chore.effortScore}/5  ·  ${chore.frequencyLabel()}",
                     style = MaterialTheme.typography.labelSmall
                 )
                 Text(
@@ -184,6 +191,11 @@ private fun CreateChoreDialog(
     var effortScore by remember { mutableFloatStateOf(existing?.effortScore?.toFloat() ?: 2f) }
     var timeSensitive by remember { mutableStateOf(existing?.isTimeSensitive ?: false) }
     var selectedFrequency by remember { mutableStateOf(existing?.frequency ?: ChoreFrequency.WEEKLY) }
+    var intervalDays by remember { mutableStateOf(existing?.intervalDays?.toString() ?: "") }
+
+    val intervalValid = selectedFrequency != ChoreFrequency.EVERY_N_DAYS ||
+        (intervalDays.toIntOrNull() ?: 0) >= 2
+    val canSave = name.isNotBlank() && intervalValid
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -206,8 +218,23 @@ private fun CreateChoreDialog(
                 )
                 SimpleDropdown("Due day", DAYS, selectedDay) { selectedDay = it }
                 SimpleDropdown("Due time", HOURS, selectedHour) { selectedHour = it }
-                SimpleDropdown("Frequency", FREQUENCIES, selectedFrequency.ordinal) {
+                SimpleDropdown("Frequency", FREQUENCY_LABELS, selectedFrequency.ordinal) {
                     selectedFrequency = ChoreFrequency.entries[it]
+                }
+
+                if (selectedFrequency == ChoreFrequency.EVERY_N_DAYS) {
+                    val showError = intervalDays.isNotEmpty() && (intervalDays.toIntOrNull() ?: 0) < 2
+                    OutlinedTextField(
+                        value = intervalDays,
+                        onValueChange = { v -> intervalDays = v.filter { it.isDigit() } },
+                        label = { Text("Repeat every N days") },
+                        supportingText = if (showError) {
+                            { Text("Must be at least 2") }
+                        } else null,
+                        isError = showError,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 Column {
@@ -229,7 +256,7 @@ private fun CreateChoreDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    if (name.isNotBlank()) {
+                    if (canSave) {
                         onConfirm(
                             Chore(
                                 id = existing?.id ?: UUID.randomUUID().toString(),
@@ -241,11 +268,14 @@ private fun CreateChoreDialog(
                                 effortScore = effortScore.toInt(),
                                 dueDayOfWeek = selectedDay,
                                 dueHour = selectedHour,
-                                isTimeSensitive = timeSensitive
+                                isTimeSensitive = timeSensitive,
+                                intervalDays = if (selectedFrequency == ChoreFrequency.EVERY_N_DAYS)
+                                    intervalDays.toIntOrNull() else null
                             )
                         )
                     }
-                }
+                },
+                enabled = canSave
             ) { Text(if (existing == null) "Add" else "Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }

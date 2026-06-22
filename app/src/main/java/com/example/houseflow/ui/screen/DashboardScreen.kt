@@ -29,9 +29,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.ChoreAssignment
+import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.ui.viewmodel.AppViewModel
+import java.util.Calendar
 
 private val DAYS = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+private fun dayNameFromTimestamp(epochMs: Long): String {
+    val cal = Calendar.getInstance().apply { timeInMillis = epochMs }
+    val index = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
+    return DAYS[index]
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,10 +49,12 @@ fun DashboardScreen(vm: AppViewModel) {
     val roommates by vm.roommates.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
 
+    val weekEnd = vm.weekStart + 7 * 86_400_000L
     val completedCount = assignments.count {
         it.assignedToRoommateId == currentUser?.id &&
             it.status == AssignmentStatus.COMPLETED &&
-            it.weekStart == vm.weekStart
+            it.weekStart >= vm.weekStart &&
+            it.weekStart < weekEnd
     }
 
     LaunchedEffect(Unit) { vm.refreshOverdue() }
@@ -87,10 +97,16 @@ fun DashboardScreen(vm: AppViewModel) {
                     val assignee = roommates.find { it.id == assignment.assignedToRoommateId }
                     val isMyChore = assignment.assignedToRoommateId == currentUser?.id
 
+                    val dueDay = if (chore != null && chore.frequency != ChoreFrequency.WEEKLY) {
+                        dayNameFromTimestamp(assignment.weekStart)
+                    } else {
+                        chore?.dueDayOfWeek?.let { DAYS[it] } ?: ""
+                    }
+
                     AssignmentCard(
                         assignment = assignment,
                         choreName = chore?.name ?: "Unknown chore",
-                        dueDay = chore?.dueDayOfWeek?.let { DAYS[it] } ?: "",
+                        dueDay = dueDay,
                         dueHour = chore?.dueHour ?: 0,
                         assigneeName = assignee?.name ?: "Unknown",
                         isMyChore = isMyChore,
