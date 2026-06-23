@@ -87,8 +87,9 @@ com.example.houseflow/
     screen/
       CreateAccountScreen.kt
       JoinHouseholdScreen.kt
-      MainScreen.kt                 ← bottom-nav host (Schedule / Chores / Dashboard)
+      MainScreen.kt                 ← bottom-nav host (Schedule / Roommates / Chores / Dashboard)
       AvailabilityScreen.kt
+      RoommateAvailabilityScreen.kt ← household-wide weekly availability grid
       ChoreListScreen.kt
       DashboardScreen.kt
     theme/                          ← Color.kt, Theme.kt, Type.kt
@@ -110,11 +111,12 @@ data class BusyBlock(val id: String, val roommateId: String, val dayOfWeek: Int,
 
 ### `Chore`
 ```kotlin
-enum class ChoreFrequency { DAILY, WEEKLY }
+enum class ChoreFrequency { DAILY, WEEKLY, EVERY_N_DAYS, ONE_TIME }
 data class Chore(val id: String, val householdId: String, val createdByRoommateId: String,
     val name: String, val description: String, val frequency: ChoreFrequency,
     val effortScore: Int, // 1–5
-    val dueDayOfWeek: Int, val dueHour: Int, val isTimeSensitive: Boolean)
+    val dueDayOfWeek: Int, val dueHour: Int, val isTimeSensitive: Boolean,
+    val intervalDays: Int? = null) // only used when frequency == EVERY_N_DAYS
 ```
 
 ### `ChoreAssignment`
@@ -137,7 +139,7 @@ Seed: `id="household-1"`, `inviteCode="DEMO123"`.
 
 **`HouseholdRepository`**: `getHousehold`, `joinHousehold(code)`, `addRoommateToHousehold`, `getRoommates`, `getBusyBlocks`, `addBusyBlock`, `deleteBusyBlock`.
 
-**`ChoreRepository`**: `getChores`, `addChore`, `deleteChore` (cascades to assignments), `getAssignments`, `addAssignment`, `updateAssignmentStatus`.
+**`ChoreRepository`**: `getChores`, `addChore`, `updateChore`, `deleteChore` (cascades to assignments), `getAssignments`, `addAssignment`, `updateAssignment`, `updateAssignmentStatus`.
 
 `AppContainer` is the service locator. To migrate to Room, replace the concrete types there — ViewModels only see the interfaces.
 
@@ -153,14 +155,19 @@ Single ViewModel scoped to the nav graph via `AppViewModel.Factory`.
 | `household` | `Household?` | Null until `joinHousehold()` succeeds |
 | `roommates` | `List<Roommate>` | All in the household |
 | `myBusyBlocks` | `List<BusyBlock>` | Current user only |
+| `householdBusyBlocks` | `Map<String, List<BusyBlock>>` | All roommates' blocks, keyed by roommate id |
 | `chores` | `List<Chore>` | All household chores |
 | `assignments` | `List<ChoreAssignment>` | All weeks |
 | `assignmentsRun` | `Boolean` | Button guard; resets when chores change |
 | `weekStart` | `Long` | This week's Monday epoch ms, computed once |
 
-Key actions: `createAccount(name)`, `joinHousehold(code): Boolean`, `addBusyBlock`, `deleteBusyBlock`, `addChore`, `deleteChore`, `runAssignments()`, `markComplete(id)`.
+Key actions: `createAccount(name)`, `joinHousehold(code): Boolean`, `addBusyBlock`, `deleteBusyBlock`, `addChore` (auto-runs assignments), `updateChore`, `deleteChore`, `runAssignments()`, `markComplete(id)`, `swapAssignment(id)`, `refreshOverdue()`.
 
-`runAssignments()` skips chores already assigned this week and calls `AssignmentAlgorithm.assignAll()`.
+`runAssignments()` builds frequency-aware slots (one per day for DAILY, one per interval for EVERY_N_DAYS, once for WEEKLY/ONE_TIME) skipping already-assigned slots, then calls `AssignmentAlgorithm.assignOne()` per slot.
+
+`swapAssignment(id)` re-routes the assignment to the fairest other roommate (excludes the current assignee).
+
+`refreshOverdue()` marks PENDING assignments whose due timestamp has passed as MISSED.
 
 ---
 
@@ -187,7 +194,7 @@ Iterates chores and scores every roommate for each one. The accumulating `newAss
 CREATE_ACCOUNT  →  JOIN_HOUSEHOLD  →  MAIN  (auth screens popped off stack)
 ```
 
-`MainScreen` is a `Scaffold` with a bottom `NavigationBar`: tab 0 = Schedule (`AvailabilityScreen`), tab 1 = Chores (`ChoreListScreen`), tab 2 = Dashboard (`DashboardScreen`).
+`MainScreen` is a `Scaffold` with a bottom `NavigationBar`: tab 0 = Schedule (`AvailabilityScreen`), tab 1 = Roommates (`RoommateAvailabilityScreen`), tab 2 = Chores (`ChoreListScreen`), tab 3 = Dashboard (`DashboardScreen`).
 
 ---
 
@@ -196,8 +203,9 @@ CREATE_ACCOUNT  →  JOIN_HOUSEHOLD  →  MAIN  (auth screens popped off stack)
 - **CreateAccountScreen**: name-only sign-in, calls `vm.createAccount(name)`.
 - **JoinHouseholdScreen**: invite-code entry, demo code `DEMO123`, shows inline error on failure.
 - **AvailabilityScreen**: lists/adds/deletes the current user's `BusyBlock`s. Shared `SimpleDropdown` composable lives here.
-- **ChoreListScreen**: lists/adds/deletes chores. "Run Fair Assignment" button disabled once run or if no chores.
-- **DashboardScreen**: shows all `ChoreAssignment`s. Cards are color-coded (error=conflict, secondary=completed). "Mark Complete" shown only for the current user's pending chores.
+- **RoommateAvailabilityScreen**: read-only weekly grid showing all roommates' busy blocks, color-coded by `BlockType`. Hour window expands dynamically to cover all blocks.
+- **ChoreListScreen**: lists/adds/edits/deletes chores. "Run Fair Assignment" button disabled once run or if no chores.
+- **DashboardScreen**: shows all `ChoreAssignment`s. Cards are color-coded (error=conflict, secondary=completed). "Mark Complete" and "Swap" shown for the current user's pending chores.
 
 ---
 
@@ -226,7 +234,5 @@ All marked `// Migration seam:` in source.
 - Real persistence (data resets on restart)
 - Real authentication
 - Push notifications / reminders
-- Chore editing (only add/delete)
 - `effortScore` and `isTimeSensitive` captured in UI but not used by the algorithm
-- `MISSED` status defined but never set automatically
 - Multi-household support
