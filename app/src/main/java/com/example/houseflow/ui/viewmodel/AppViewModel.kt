@@ -8,6 +8,7 @@ import com.example.houseflow.data.AppContainer
 import com.example.houseflow.data.repository.ChoreRepository
 import com.example.houseflow.data.repository.HouseholdRepository
 import com.example.houseflow.model.AssignmentStatus
+import com.example.houseflow.model.BulletinPost
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
@@ -53,6 +54,10 @@ class AppViewModel(
     private val _assignmentsRun = MutableStateFlow(false)
     val assignmentsRun: StateFlow<Boolean> = _assignmentsRun.asStateFlow()
 
+    // House Bulletin posts
+    private val _bulletinPosts = MutableStateFlow<List<BulletinPost>>(emptyList())
+    val bulletinPosts: StateFlow<List<BulletinPost>> = _bulletinPosts.asStateFlow()
+
     val weekStart: Long = currentWeekStart()
 
     // --- Auth ---
@@ -68,8 +73,67 @@ class AppViewModel(
         householdRepo.addRoommateToHousehold(h.id, user)
         _household.value = h
         _roommates.value = householdRepo.getRoommates(h.id)
+
+        // Seed current user's schedule with a realistic student timetable
+        seedUserSchedule(user.id)
+
+        // Seed bulletin posts so the board isn't empty
+        seedBulletinPosts(user.name)
+
+        refreshMyBlocks()
         refreshHouseholdBlocks()
+        refreshChores()
         return true
+    }
+
+    private fun seedUserSchedule(userId: String) {
+        // Only seed if user has no blocks yet
+        if (householdRepo.getBusyBlocks(userId).isNotEmpty()) return
+
+        val blocks = listOf(
+            BusyBlock("seed-1", userId, dayOfWeek = 0, startHour = 9, endHour = 12, title = "CS 446 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
+            BusyBlock("seed-2", userId, dayOfWeek = 0, startHour = 14, endHour = 16, title = "ECE 452 Lab", type = com.example.houseflow.model.BlockType.CLASS),
+            BusyBlock("seed-3", userId, dayOfWeek = 1, startHour = 10, endHour = 12, title = "MATH 239 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
+            BusyBlock("seed-4", userId, dayOfWeek = 2, startHour = 9, endHour = 12, title = "CS 446 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
+            BusyBlock("seed-5", userId, dayOfWeek = 2, startHour = 16, endHour = 19, title = "Part-time job", type = com.example.houseflow.model.BlockType.WORK),
+            BusyBlock("seed-6", userId, dayOfWeek = 3, startHour = 10, endHour = 12, title = "MATH 239 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
+            BusyBlock("seed-7", userId, dayOfWeek = 3, startHour = 13, endHour = 15, title = "Study group", type = com.example.houseflow.model.BlockType.OTHER),
+            BusyBlock("seed-8", userId, dayOfWeek = 4, startHour = 9, endHour = 11, title = "CS 446 Tutorial", type = com.example.houseflow.model.BlockType.CLASS),
+            BusyBlock("seed-9", userId, dayOfWeek = 4, startHour = 16, endHour = 19, title = "Part-time job", type = com.example.houseflow.model.BlockType.WORK),
+            BusyBlock("seed-10", userId, dayOfWeek = 5, startHour = 11, endHour = 13, title = "Intramurals", type = com.example.houseflow.model.BlockType.CLUB),
+        )
+        blocks.forEach { householdRepo.addBusyBlock(it) }
+    }
+
+    private fun seedBulletinPosts(userName: String) {
+        if (_bulletinPosts.value.isNotEmpty()) return
+
+        _bulletinPosts.value = listOf(
+            com.example.houseflow.model.BulletinPost(
+                id = "bp-1", householdId = "household-1",
+                authorName = "Maya", title = "Group grocery run Saturday",
+                message = "Costco trip at 2pm — add items to the shared list if you need anything!",
+                isEvent = true, timestamp = System.currentTimeMillis() - 3600_000
+            ),
+            com.example.houseflow.model.BulletinPost(
+                id = "bp-2", householdId = "household-1",
+                authorName = "Jake", title = "Internet bill due Friday",
+                message = "Everyone owes \$18.75 this month. E-transfer Jake.",
+                isEvent = false, timestamp = System.currentTimeMillis() - 86400_000
+            ),
+            com.example.houseflow.model.BulletinPost(
+                id = "bp-3", householdId = "household-1",
+                authorName = "Priya", title = "House dinner Sunday night",
+                message = "Making pasta — let me know dietary restrictions!",
+                isEvent = true, timestamp = System.currentTimeMillis() - 172800_000
+            ),
+            com.example.houseflow.model.BulletinPost(
+                id = "bp-4", householdId = "household-1",
+                authorName = "Jake", title = "Quiet hours reminder",
+                message = "Please keep it down after 11pm on weeknights. Some of us have 8am shifts.",
+                isEvent = false, timestamp = System.currentTimeMillis() - 259200_000
+            ),
+        )
     }
 
     // --- Availability ---
@@ -219,6 +283,27 @@ class AppViewModel(
             .copy(id = current.id)
         choreRepo.updateAssignment(reassigned)
         refreshAssignments()
+    }
+
+    // --- Bulletin ---
+
+    fun addBulletinPost(title: String, message: String, isEvent: Boolean) {
+        val user = _currentUser.value ?: return
+        val household = _household.value ?: return
+        val post = BulletinPost(
+            id = java.util.UUID.randomUUID().toString(),
+            householdId = household.id,
+            authorName = user.name,
+            title = title,
+            message = message,
+            isEvent = isEvent,
+            timestamp = System.currentTimeMillis()
+        )
+        _bulletinPosts.value = listOf(post) + _bulletinPosts.value
+    }
+
+    fun deleteBulletinPost(postId: String) {
+        _bulletinPosts.value = _bulletinPosts.value.filter { it.id != postId }
     }
 
     fun refreshOverdue() {

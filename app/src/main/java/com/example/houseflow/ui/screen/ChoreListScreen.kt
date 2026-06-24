@@ -18,11 +18,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -40,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.Chore
@@ -65,9 +68,15 @@ fun ChoreListScreen(vm: AppViewModel) {
     val assignments by vm.assignments.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
     val household by vm.household.collectAsState()
+    val roommates by vm.roommates.collectAsState()
     val assignmentsRun by vm.assignmentsRun.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
     var editingChore by remember { mutableStateOf<Chore?>(null) }
+
+    // Current user's assignments this week
+    val myAssignments = assignments.filter {
+        it.assignedToRoommateId == currentUser?.id && it.weekStart == vm.weekStart
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Chores") }) },
@@ -85,29 +94,73 @@ fun ChoreListScreen(vm: AppViewModel) {
         ) {
             Spacer(Modifier.height(8.dp))
 
+            // Run Assignment button
             Button(
                 onClick = { vm.runAssignments() },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = chores.isNotEmpty() && !assignmentsRun
             ) {
-                Text(if (assignmentsRun) "Assignments done — see Dashboard" else "Run Fair Assignment")
+                Text(if (assignmentsRun) "Assignments done for this week ✓" else "Run Fair Assignment")
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
 
             if (chores.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No chores yet. Tap + to add one.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "No chores yet. Tap + to add one.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // My assignments section (shown after running)
+                    if (myAssignments.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Your Chores This Week",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        items(myAssignments, key = { it.id }) { assignment ->
+                            val chore = chores.find { it.id == assignment.choreId }
+                            MyAssignmentCard(
+                                choreName = chore?.name ?: "Unknown",
+                                dueDay = chore?.dueDayOfWeek?.let { DAYS[it] } ?: "",
+                                dueHour = chore?.dueHour ?: 0,
+                                reason = assignment.reason,
+                                status = assignment.status,
+                                hasConflict = assignment.hasConflict,
+                                onMarkComplete = { vm.markComplete(assignment.id) },
+                                onSwap = { vm.swapAssignment(assignment.id) }
+                            )
+                        }
+                        item {
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "All Household Chores",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                    }
+
+                    // All chores list
                     items(chores, key = { it.id }) { chore ->
                         val completedCount = assignments.count {
                             it.choreId == chore.id && it.status == AssignmentStatus.COMPLETED
                         }
+                        val assignedTo = assignments
+                            .find { it.choreId == chore.id && it.weekStart == vm.weekStart }
+                            ?.let { a -> roommates.find { it.id == a.assignedToRoommateId }?.name }
+
                         ChoreRow(
                             chore = chore,
                             completedCount = completedCount,
+                            assignedTo = assignedTo,
                             onEdit = { editingChore = chore },
                             onDelete = { vm.deleteChore(chore.id) }
                         )
@@ -144,7 +197,95 @@ fun ChoreListScreen(vm: AppViewModel) {
 }
 
 @Composable
-private fun ChoreRow(chore: Chore, completedCount: Int, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun MyAssignmentCard(
+    choreName: String,
+    dueDay: String,
+    dueHour: Int,
+    reason: String,
+    status: AssignmentStatus,
+    hasConflict: Boolean,
+    onMarkComplete: () -> Unit,
+    onSwap: () -> Unit
+) {
+    val containerColor = when {
+        status == AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.secondaryContainer
+        status == AssignmentStatus.MISSED -> MaterialTheme.colorScheme.errorContainer
+        hasConflict -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+        else -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = containerColor)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(choreName, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Due: $dueDay at ${"%02d:00".format(dueHour)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                val statusLabel = when (status) {
+                    AssignmentStatus.PENDING -> "Pending"
+                    AssignmentStatus.COMPLETED -> "Done ✓"
+                    AssignmentStatus.MISSED -> "Missed"
+                }
+                Text(
+                    statusLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = when (status) {
+                        AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.primary
+                        AssignmentStatus.MISSED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text(
+                reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (hasConflict) {
+                Text(
+                    "⚠ Assigned despite schedule conflict",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            if (status == AssignmentStatus.PENDING) {
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onMarkComplete, modifier = Modifier.weight(1f)) {
+                        Text("Complete")
+                    }
+                    OutlinedButton(onClick = onSwap, modifier = Modifier.weight(1f)) {
+                        Text("Swap")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChoreRow(
+    chore: Chore,
+    completedCount: Int,
+    assignedTo: String?,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -161,9 +302,17 @@ private fun ChoreRow(chore: Chore, completedCount: Int, onEdit: () -> Unit, onDe
                     "Effort: ${chore.effortScore}/5  ·  ${chore.frequencyLabel()}",
                     style = MaterialTheme.typography.labelSmall
                 )
+                if (assignedTo != null) {
+                    Text(
+                        "Assigned to: $assignedTo",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Text(
                     "Completed ${completedCount}×",
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             IconButton(onClick = onEdit) {

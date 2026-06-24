@@ -3,9 +3,9 @@ package com.example.houseflow.ui.screen
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -30,14 +30,14 @@ fun MainScreen(vm: AppViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                    label = { Text("Schedule") }
+                    icon = { Icon(Icons.Default.Group, contentDescription = null) },
+                    label = { Text("Roommates") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.Group, contentDescription = null) },
-                    label = { Text("Roommates") }
+                    icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                    label = { Text("My Schedule") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
@@ -48,16 +48,16 @@ fun MainScreen(vm: AppViewModel) {
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                    label = { Text("Dashboard") }
+                    icon = { Icon(Icons.Default.Campaign, contentDescription = null) },
+                    label = { Text("Bulletin") }
                 )
             }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
             when (selectedTab) {
-                0 -> AvailabilityScreen(vm)
-                1 -> RoommateAvailabilityScreen(vm)
+                0 -> RoommateAvailabilityScreen(vm)
+                1 -> AvailabilityScreen(vm)
                 2 -> ChoreListScreen(vm)
                 3 -> DashboardScreen(vm)
             }
