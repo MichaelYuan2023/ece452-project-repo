@@ -63,6 +63,7 @@ fun JoinHouseholdScreen(vm: AppViewModel, onJoined: () -> Unit) {
                     if (joined) onJoined() else showError = true
                 },
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
                 enabled = code.isNotBlank()
             ) {
                 Text("Join Household")

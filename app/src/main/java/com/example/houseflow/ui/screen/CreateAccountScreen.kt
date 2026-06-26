@@ -57,6 +57,7 @@ fun CreateAccountScreen(vm: AppViewModel, onContinue: () -> Unit) {
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
                 enabled = name.isNotBlank()
             ) {
                 Text("Continue")

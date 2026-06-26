@@ -1,5 +1,6 @@
 package com.example.houseflow.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -28,6 +30,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -81,7 +84,11 @@ fun ChoreListScreen(vm: AppViewModel) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("Chores") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showDialog = true }) {
+            FloatingActionButton(
+                onClick = { showDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Add chore")
             }
         }
@@ -98,6 +105,7 @@ fun ChoreListScreen(vm: AppViewModel) {
             Button(
                 onClick = { vm.runAssignments() },
                 modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
                 enabled = chores.isNotEmpty() && !assignmentsRun
             ) {
                 Text(if (assignmentsRun) "Assignments done for this week ✓" else "Run Fair Assignment")
@@ -236,16 +244,23 @@ private fun MyAssignmentCard(
                     AssignmentStatus.COMPLETED -> "Done ✓"
                     AssignmentStatus.MISSED -> "Missed"
                 }
-                Text(
-                    statusLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = when (status) {
-                        AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.primary
-                        AssignmentStatus.MISSED -> MaterialTheme.colorScheme.error
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
+                val statusColor = when (status) {
+                    AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
+                    AssignmentStatus.MISSED -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = statusColor.copy(alpha = 0.12f),
+                    contentColor = statusColor
+                ) {
+                    Text(
+                        statusLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    )
+                }
             }
 
             Spacer(Modifier.height(4.dp))
@@ -266,10 +281,18 @@ private fun MyAssignmentCard(
             if (status == AssignmentStatus.PENDING) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onMarkComplete, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = onMarkComplete,
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.small
+                    ) {
                         Text("Complete")
                     }
-                    OutlinedButton(onClick = onSwap, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = onSwap,
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.small
+                    ) {
                         Text("Swap")
                     }
                 }
@@ -286,7 +309,12 @@ private fun ChoreRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
