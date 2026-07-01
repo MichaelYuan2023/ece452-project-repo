@@ -1,5 +1,6 @@
 package com.example.houseflow.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -27,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -52,7 +55,11 @@ fun DashboardScreen(vm: AppViewModel) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("House Bulletin") }) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showDialog = true }) {
+            FloatingActionButton(
+                onClick = { showDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "New post")
             }
         }
@@ -122,7 +129,9 @@ private fun BulletinPostCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = containerColor)
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -134,13 +143,21 @@ private fun BulletinPostCard(
                 )
                 Spacer(Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        if (post.isEvent) "Event" else "Announcement",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (post.isEvent) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    val accent = if (post.isEvent) MaterialTheme.colorScheme.tertiary
+                    else MaterialTheme.colorScheme.primary
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = accent.copy(alpha = 0.12f),
+                        contentColor = accent
+                    ) {
+                        Text(
+                            if (post.isEvent) "Event" else "Announcement",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
                     Text(post.title, style = MaterialTheme.typography.titleSmall)
                 }
                 IconButton(onClick = onDelete) {

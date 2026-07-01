@@ -1,5 +1,6 @@
 package com.example.houseflow.ui.screen
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,10 +54,10 @@ private val DAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 private val FULL_DAYS = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 private fun typeColor(type: BlockType): Color = when (type) {
-    BlockType.CLASS -> Color(0xFF7E57C2)
-    BlockType.WORK -> Color(0xFF42A5F5)
-    BlockType.CLUB -> Color(0xFF66BB6A)
-    BlockType.OTHER -> Color(0xFFFFA726)
+    BlockType.CLASS -> Color(0xFF8B5CF6)
+    BlockType.WORK -> Color(0xFF3B82F6)
+    BlockType.CLUB -> Color(0xFF34D399)
+    BlockType.OTHER -> Color(0xFFFB923C)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,7 +131,9 @@ private fun RoommateListItem(roommate: Roommate, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
