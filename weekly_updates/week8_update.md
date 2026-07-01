@@ -1,5 +1,5 @@
-# Team Project Week 6 Update
-June 15 – June 22
+# Team Project Week 8 Update
+June 22 – June 29
 - [Ronald] implemented initial core screens of the app to act as a baseline for further development.
 - [Happy] suggested and implemented fixes to the app as it relates to the user scenario flow. 
 - [Michael] implemented a feature where users could see the schedule availabilities of all their roommates.
