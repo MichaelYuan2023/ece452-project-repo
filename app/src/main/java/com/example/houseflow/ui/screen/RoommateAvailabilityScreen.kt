@@ -88,7 +88,7 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item { Spacer(Modifier.height(8.dp)) }
-                items(roommates, key = { it.id }) { roommate ->
+                items(roommates, key = { it.userId }) { roommate ->
                     RoommateListItem(
                         roommate = roommate,
                         onClick = { selectedRoommate = roommate }
@@ -101,9 +101,9 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
 
     // Popup card when a roommate is tapped
     selectedRoommate?.let { roommate ->
-        val blocks = blocksByRoommate[roommate.id] ?: emptyList()
+        val blocks = blocksByRoommate[roommate.userId] ?: emptyList()
         val roommateAssignments = assignments.filter {
-            it.assignedToRoommateId == roommate.id && it.weekStart == vm.weekStart
+            it.assignedToRoommateId == roommate.userId && it.weekStart == vm.weekStart
         }
 
         RoommateProfileDialog(
@@ -148,14 +148,14 @@ private fun RoommateListItem(roommate: Roommate, onClick: () -> Unit) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = roommate.name.first().uppercase(),
+                    text = roommate.displayName.first().uppercase(),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
             Spacer(Modifier.width(16.dp))
             Column {
-                Text(roommate.name, style = MaterialTheme.typography.titleMedium)
+                Text(roommate.displayName, style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Tap to view schedule & chores",
                     style = MaterialTheme.typography.bodySmall,
@@ -185,13 +185,13 @@ private fun RoommateProfileDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = roommate.name.first().uppercase(),
+                        text = roommate.displayName.first().uppercase(),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Text(roommate.name)
+                Text(roommate.displayName)
             }
         },
         text = {

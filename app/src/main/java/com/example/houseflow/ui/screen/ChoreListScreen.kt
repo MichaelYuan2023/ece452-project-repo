@@ -78,7 +78,7 @@ fun ChoreListScreen(vm: AppViewModel) {
 
     // Current user's assignments this week
     val myAssignments = assignments.filter {
-        it.assignedToRoommateId == currentUser?.id && it.weekStart == vm.weekStart
+        it.assignedToRoommateId == currentUser?.uid && it.weekStart == vm.weekStart
     }
 
     Scaffold(
@@ -163,7 +163,7 @@ fun ChoreListScreen(vm: AppViewModel) {
                         }
                         val assignedTo = assignments
                             .find { it.choreId == chore.id && it.weekStart == vm.weekStart }
-                            ?.let { a -> roommates.find { it.id == a.assignedToRoommateId }?.name }
+                            ?.let { a -> roommates.find { it.userId == a.assignedToRoommateId }?.displayName }
 
                         ChoreRow(
                             chore = chore,
@@ -180,7 +180,7 @@ fun ChoreListScreen(vm: AppViewModel) {
         if (showDialog) {
             CreateChoreDialog(
                 householdId = household?.id ?: "",
-                createdByRoommateId = currentUser?.id ?: "",
+                createdByRoommateId = currentUser?.uid ?: "",
                 onDismiss = { showDialog = false },
                 onConfirm = { chore ->
                     vm.addChore(chore)

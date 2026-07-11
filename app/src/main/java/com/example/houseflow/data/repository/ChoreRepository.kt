@@ -4,14 +4,14 @@ import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 
-// Migration seam: swap InMemoryChoreRepository for a Room-backed implementation.
+// Backed by Room. All calls are suspend so they run off the main thread.
 interface ChoreRepository {
-    fun getChores(householdId: String): List<Chore>
-    fun addChore(chore: Chore)
-    fun updateChore(chore: Chore)
-    fun deleteChore(choreId: String)
-    fun getAssignments(householdId: String): List<ChoreAssignment>
-    fun addAssignment(assignment: ChoreAssignment)
-    fun updateAssignment(assignment: ChoreAssignment)
-    fun updateAssignmentStatus(assignmentId: String, status: AssignmentStatus)
+    suspend fun getChores(householdId: String): List<Chore>
+    suspend fun addChore(chore: Chore)
+    suspend fun updateChore(chore: Chore)
+    suspend fun deleteChore(choreId: String)
+    suspend fun getAssignments(householdId: String): List<ChoreAssignment>
+    suspend fun addAssignment(assignment: ChoreAssignment)
+    suspend fun updateAssignment(assignment: ChoreAssignment)
+    suspend fun updateAssignmentStatus(assignmentId: String, status: AssignmentStatus)
 }

@@ -1,10 +1,14 @@
 package com.example.houseflow.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
 enum class ChoreFrequency { DAILY, WEEKLY, EVERY_N_DAYS, ONE_TIME }
 
 // dueDayOfWeek: 0=Monday … 6=Sunday; dueHour: 0–23
+@Entity(tableName = "chores")
 data class Chore(
-    val id: String,
+    @PrimaryKey val id: String,
     val householdId: String,
     val createdByRoommateId: String,
     val name: String,

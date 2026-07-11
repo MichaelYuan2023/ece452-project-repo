@@ -16,16 +16,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.houseflow.ui.viewmodel.AppViewModel
+import kotlinx.coroutines.launch
 
+// A successful join flips the ViewModel's session state to IN_HOUSEHOLD, which
+// navigates to the main screens automatically — so there's no onJoined callback.
 @Composable
-fun JoinHouseholdScreen(vm: AppViewModel, onJoined: () -> Unit) {
+fun JoinHouseholdScreen(vm: AppViewModel) {
     var code by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Scaffold { padding ->
         Column(
@@ -49,6 +55,7 @@ fun JoinHouseholdScreen(vm: AppViewModel, onJoined: () -> Unit) {
                 },
                 label = { Text("Invite code") },
                 singleLine = true,
+                enabled = !loading,
                 isError = showError,
                 supportingText = if (showError) {
                     { Text("Invalid code. Try DEMO123.") }
@@ -59,12 +66,16 @@ fun JoinHouseholdScreen(vm: AppViewModel, onJoined: () -> Unit) {
 
             Button(
                 onClick = {
-                    val joined = vm.joinHousehold(code)
-                    if (joined) onJoined() else showError = true
+                    loading = true
+                    scope.launch {
+                        val joined = vm.joinHousehold(code)
+                        loading = false
+                        if (!joined) showError = true
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.small,
-                enabled = code.isNotBlank()
+                enabled = code.isNotBlank() && !loading
             ) {
                 Text("Join Household")
             }

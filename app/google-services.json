@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "241474641958",
+    "project_id": "houseflow-41f86",
+    "storage_bucket": "houseflow-41f86.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:241474641958:android:b382f557bbc35c8f0b06e7",
+        "android_client_info": {
+          "package_name": "com.example.houseflow"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC30R5JRJrPInNP3Sl-8-24P0usSfp8sCE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -4,14 +4,15 @@ import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.Roommate
 
-// Migration seam: swap InMemoryHouseholdRepository for a Room-backed implementation
-// without touching any ViewModel or UI code.
+// Backed by Room. All calls are suspend so they run off the main thread.
 interface HouseholdRepository {
-    fun getHousehold(): Household?
-    fun joinHousehold(code: String): Household?
-    fun addRoommateToHousehold(householdId: String, roommate: Roommate)
-    fun getRoommates(householdId: String): List<Roommate>
-    fun getBusyBlocks(roommateId: String): List<BusyBlock>
-    fun addBusyBlock(block: BusyBlock)
-    fun deleteBusyBlock(blockId: String)
+    suspend fun joinHousehold(code: String): Household?
+    // The household this user already belongs to, if any — used to restore the
+    // session on launch so returning members skip the join screen.
+    suspend fun getHouseholdForUser(userId: String): Household?
+    suspend fun addRoommateToHousehold(householdId: String, roommate: Roommate)
+    suspend fun getRoommates(householdId: String): List<Roommate>
+    suspend fun getBusyBlocks(roommateId: String): List<BusyBlock>
+    suspend fun addBusyBlock(block: BusyBlock)
+    suspend fun deleteBusyBlock(blockId: String)
 }

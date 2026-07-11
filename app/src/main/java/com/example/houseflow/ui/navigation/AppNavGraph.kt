@@ -1,40 +1,43 @@
 package com.example.houseflow.ui.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import com.example.houseflow.ui.screen.CreateAccountScreen
+import com.example.houseflow.ui.screen.AuthScreen
 import com.example.houseflow.ui.screen.JoinHouseholdScreen
 import com.example.houseflow.ui.screen.MainScreen
 import com.example.houseflow.ui.viewmodel.AppViewModel
+import com.example.houseflow.ui.viewmodel.SessionState
 
-object Routes {
-    const val CREATE_ACCOUNT = "create_account"
-    const val JOIN_HOUSEHOLD = "join_household"
-    const val MAIN = "main"
+// Top-level gating is driven purely by session state rather than a NavController:
+// auth, household membership, and sign-out all just change state, and the right
+// screen is shown. (Tab navigation within MainScreen is handled there.)
+@Composable
+fun AppNavGraph() {
+    val vm: AppViewModel = viewModel(factory = AppViewModel.Factory)
+    val session by vm.sessionState.collectAsState()
+
+    when (session) {
+        SessionState.LOADING -> LoadingScreen()
+        SessionState.SIGNED_OUT -> AuthScreen(vm)
+        SessionState.NEEDS_HOUSEHOLD -> JoinHouseholdScreen(vm)
+        SessionState.IN_HOUSEHOLD -> MainScreen(vm, onSignOut = { vm.signOut() })
+    }
 }
 
 @Composable
-fun AppNavGraph(navController: NavHostController) {
-    val vm: AppViewModel = viewModel(factory = AppViewModel.Factory)
-
-    NavHost(navController = navController, startDestination = Routes.CREATE_ACCOUNT) {
-        composable(Routes.CREATE_ACCOUNT) {
-            CreateAccountScreen(vm) {
-                navController.navigate(Routes.JOIN_HOUSEHOLD)
-            }
-        }
-        composable(Routes.JOIN_HOUSEHOLD) {
-            JoinHouseholdScreen(vm) {
-                navController.navigate(Routes.MAIN) {
-                    popUpTo(Routes.CREATE_ACCOUNT) { inclusive = true }
-                }
-            }
-        }
-        composable(Routes.MAIN) {
-            MainScreen(vm)
-        }
+private fun LoadingScreen() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
     }
 }

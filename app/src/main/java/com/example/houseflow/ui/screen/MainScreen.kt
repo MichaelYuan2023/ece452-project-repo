@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.example.houseflow.ui.viewmodel.AppViewModel
 
 @Composable
-fun MainScreen(vm: AppViewModel) {
+fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
     Scaffold(
@@ -79,7 +79,7 @@ fun MainScreen(vm: AppViewModel) {
         Box(modifier = Modifier.padding(padding)) {
             when (selectedTab) {
                 0 -> RoommateAvailabilityScreen(vm)
-                1 -> AvailabilityScreen(vm)
+                1 -> AvailabilityScreen(vm, onSignOut = onSignOut)
                 2 -> ChoreListScreen(vm)
                 3 -> DashboardScreen(vm)
             }

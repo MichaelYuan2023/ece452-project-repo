@@ -2,12 +2,17 @@ package com.example.houseflow.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.houseflow.data.AppContainer
+import com.example.houseflow.data.repository.AuthRepository
+import com.example.houseflow.data.repository.BulletinRepository
 import com.example.houseflow.data.repository.ChoreRepository
 import com.example.houseflow.data.repository.HouseholdRepository
+import com.example.houseflow.data.repository.UserRepository
 import com.example.houseflow.model.AssignmentStatus
+import com.example.houseflow.model.BlockType
 import com.example.houseflow.model.BulletinPost
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
@@ -15,20 +20,36 @@ import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.User
 import com.example.houseflow.util.AssignmentAlgorithm
+import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.util.Calendar
+import java.util.UUID
+
+// Drives top-level navigation. Derived from auth + household state.
+enum class SessionState { LOADING, SIGNED_OUT, NEEDS_HOUSEHOLD, IN_HOUSEHOLD }
 
 class AppViewModel(
+    private val authRepo: AuthRepository,
+    private val userRepo: UserRepository,
     private val householdRepo: HouseholdRepository,
-    private val choreRepo: ChoreRepository
+    private val choreRepo: ChoreRepository,
+    private val bulletinRepo: BulletinRepository
 ) : ViewModel() {
 
-    // Migration seam: for real auth, replace name-only sign-in with token-based auth.
-    private val _currentUser = MutableStateFlow<Roommate?>(null)
-    val currentUser: StateFlow<Roommate?> = _currentUser.asStateFlow()
+    // Identity from Firebase Auth, restored automatically on launch.
+    private val _currentUser = MutableStateFlow(authRepo.currentUser?.toUser())
+    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
+
+    // True while we resolve a signed-in user's household on launch/sign-in.
+    private val _restoring = MutableStateFlow(authRepo.currentUser != null)
 
     private val _household = MutableStateFlow<Household?>(null)
     val household: StateFlow<Household?> = _household.asStateFlow()
@@ -39,8 +60,7 @@ class AppViewModel(
     private val _myBusyBlocks = MutableStateFlow<List<BusyBlock>>(emptyList())
     val myBusyBlocks: StateFlow<List<BusyBlock>> = _myBusyBlocks.asStateFlow()
 
-    // Busy blocks for every roommate in the household, keyed by roommate id.
-    // Powers the "see everyone's availability" calendar view.
+    // Busy blocks for every roommate in the household, keyed by userId.
     private val _householdBusyBlocks = MutableStateFlow<Map<String, List<BusyBlock>>>(emptyMap())
     val householdBusyBlocks: StateFlow<Map<String, List<BusyBlock>>> = _householdBusyBlocks.asStateFlow()
 
@@ -54,141 +74,198 @@ class AppViewModel(
     private val _assignmentsRun = MutableStateFlow(false)
     val assignmentsRun: StateFlow<Boolean> = _assignmentsRun.asStateFlow()
 
-    // House Bulletin posts
     private val _bulletinPosts = MutableStateFlow<List<BulletinPost>>(emptyList())
     val bulletinPosts: StateFlow<List<BulletinPost>> = _bulletinPosts.asStateFlow()
 
+    val sessionState: StateFlow<SessionState> =
+        combine(_currentUser, _household, _restoring) { user, household, restoring ->
+            when {
+                restoring -> SessionState.LOADING
+                user == null -> SessionState.SIGNED_OUT
+                household == null -> SessionState.NEEDS_HOUSEHOLD
+                else -> SessionState.IN_HOUSEHOLD
+            }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = if (authRepo.currentUser != null) SessionState.LOADING else SessionState.SIGNED_OUT
+        )
+
     val weekStart: Long = currentWeekStart()
+
+    init {
+        // Keep identity in sync with Firebase auth state and restore the user's
+        // household so returning members skip the join screen.
+        viewModelScope.launch {
+            authRepo.authState().collect { firebaseUser ->
+                if (firebaseUser != null) {
+                    _restoring.value = true
+                    val user = firebaseUser.toUser()
+                    _currentUser.value = user
+                    userRepo.upsertUser(user)
+                    restoreHousehold(user)
+                } else {
+                    _currentUser.value = null
+                    clearSessionState()
+                    _restoring.value = false
+                }
+            }
+        }
+    }
 
     // --- Auth ---
 
-    fun createAccount(name: String) {
-        _currentUser.value = Roommate(id = "user-${name.lowercase().replace(" ", "-")}", name = name.trim())
+    suspend fun signIn(email: String, password: String): Result<Unit> =
+        authRepo.signIn(email.trim(), password).map { }
+
+    suspend fun signUp(displayName: String, email: String, password: String): Result<Unit> =
+        authRepo.signUp(displayName.trim(), email.trim(), password).map { }
+
+    fun signOut() {
+        authRepo.signOut()
+        _currentUser.value = null
+        clearSessionState()
+        _restoring.value = false
     }
 
-    // Returns true if the code is valid.
-    fun joinHousehold(code: String): Boolean {
-        val h = householdRepo.joinHousehold(code) ?: return false
-        val user = _currentUser.value ?: return false
-        householdRepo.addRoommateToHousehold(h.id, user)
-        _household.value = h
-        _roommates.value = householdRepo.getRoommates(h.id)
+    private fun FirebaseUser.toUser(): User =
+        User(
+            uid = uid,
+            email = email ?: "",
+            displayName = displayName?.takeIf { it.isNotBlank() } ?: email ?: "User"
+        )
 
-        // Seed current user's schedule with a realistic student timetable
-        seedUserSchedule(user.id)
+    private suspend fun restoreHousehold(user: User) {
+        val household = householdRepo.getHouseholdForUser(user.uid)
+        if (household != null) {
+            _household.value = household
+            loadHouseholdData(household)
+        } else {
+            _household.value = null
+        }
+        _restoring.value = false
+    }
 
-        // Seed bulletin posts so the board isn't empty
-        seedBulletinPosts(user.name)
-
+    private suspend fun loadHouseholdData(household: Household) {
+        _roommates.value = householdRepo.getRoommates(household.id)
         refreshMyBlocks()
         refreshHouseholdBlocks()
         refreshChores()
+        refreshAssignments()
+        _bulletinPosts.value = bulletinRepo.getPosts(household.id)
+        _assignmentsRun.value = _assignments.value.any { it.weekStart == weekStart }
+    }
+
+    private fun clearSessionState() {
+        _household.value = null
+        _roommates.value = emptyList()
+        _myBusyBlocks.value = emptyList()
+        _householdBusyBlocks.value = emptyMap()
+        _chores.value = emptyList()
+        _assignments.value = emptyList()
+        _assignmentsRun.value = false
+        _bulletinPosts.value = emptyList()
+    }
+
+    // --- Household ---
+
+    // Returns true if the invite code is valid.
+    suspend fun joinHousehold(code: String): Boolean {
+        val user = _currentUser.value ?: return false
+        val household = householdRepo.joinHousehold(code) ?: return false
+
+        userRepo.upsertUser(user)
+        householdRepo.addRoommateToHousehold(
+            household.id,
+            Roommate(userId = user.uid, householdId = household.id, displayName = user.displayName)
+        )
+        seedUserSchedule(user.uid)
+
+        _household.value = household
+        loadHouseholdData(household)
         return true
     }
 
-    private fun seedUserSchedule(userId: String) {
-        // Only seed if user has no blocks yet
+    // Give a brand-new member a realistic starter timetable. Skipped if they
+    // already have blocks (e.g. a demo roommate signing in as themselves).
+    private suspend fun seedUserSchedule(userId: String) {
         if (householdRepo.getBusyBlocks(userId).isNotEmpty()) return
 
+        fun block(n: Int, day: Int, start: Int, end: Int, title: String, type: BlockType) =
+            BusyBlock("seed-$userId-$n", userId, day, start, end, title, type)
+
         val blocks = listOf(
-            BusyBlock("seed-1", userId, dayOfWeek = 0, startHour = 9, endHour = 12, title = "CS 446 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
-            BusyBlock("seed-2", userId, dayOfWeek = 0, startHour = 14, endHour = 16, title = "ECE 452 Lab", type = com.example.houseflow.model.BlockType.CLASS),
-            BusyBlock("seed-3", userId, dayOfWeek = 1, startHour = 10, endHour = 12, title = "MATH 239 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
-            BusyBlock("seed-4", userId, dayOfWeek = 2, startHour = 9, endHour = 12, title = "CS 446 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
-            BusyBlock("seed-5", userId, dayOfWeek = 2, startHour = 16, endHour = 19, title = "Part-time job", type = com.example.houseflow.model.BlockType.WORK),
-            BusyBlock("seed-6", userId, dayOfWeek = 3, startHour = 10, endHour = 12, title = "MATH 239 Lecture", type = com.example.houseflow.model.BlockType.CLASS),
-            BusyBlock("seed-7", userId, dayOfWeek = 3, startHour = 13, endHour = 15, title = "Study group", type = com.example.houseflow.model.BlockType.OTHER),
-            BusyBlock("seed-8", userId, dayOfWeek = 4, startHour = 9, endHour = 11, title = "CS 446 Tutorial", type = com.example.houseflow.model.BlockType.CLASS),
-            BusyBlock("seed-9", userId, dayOfWeek = 4, startHour = 16, endHour = 19, title = "Part-time job", type = com.example.houseflow.model.BlockType.WORK),
-            BusyBlock("seed-10", userId, dayOfWeek = 5, startHour = 11, endHour = 13, title = "Intramurals", type = com.example.houseflow.model.BlockType.CLUB),
+            block(1, 0, 9, 12, "CS 446 Lecture", BlockType.CLASS),
+            block(2, 0, 14, 16, "ECE 452 Lab", BlockType.CLASS),
+            block(3, 1, 10, 12, "MATH 239 Lecture", BlockType.CLASS),
+            block(4, 2, 9, 12, "CS 446 Lecture", BlockType.CLASS),
+            block(5, 2, 16, 19, "Part-time job", BlockType.WORK),
+            block(6, 3, 10, 12, "MATH 239 Lecture", BlockType.CLASS),
+            block(7, 3, 13, 15, "Study group", BlockType.OTHER),
+            block(8, 4, 9, 11, "CS 446 Tutorial", BlockType.CLASS),
+            block(9, 4, 16, 19, "Part-time job", BlockType.WORK),
+            block(10, 5, 11, 13, "Intramurals", BlockType.CLUB),
         )
         blocks.forEach { householdRepo.addBusyBlock(it) }
     }
 
-    private fun seedBulletinPosts(userName: String) {
-        if (_bulletinPosts.value.isNotEmpty()) return
-
-        _bulletinPosts.value = listOf(
-            com.example.houseflow.model.BulletinPost(
-                id = "bp-1", householdId = "household-1",
-                authorName = "Maya", title = "Group grocery run Saturday",
-                message = "Costco trip at 2pm — add items to the shared list if you need anything!",
-                isEvent = true, timestamp = System.currentTimeMillis() - 3600_000
-            ),
-            com.example.houseflow.model.BulletinPost(
-                id = "bp-2", householdId = "household-1",
-                authorName = "Jake", title = "Internet bill due Friday",
-                message = "Everyone owes \$18.75 this month. E-transfer Jake.",
-                isEvent = false, timestamp = System.currentTimeMillis() - 86400_000
-            ),
-            com.example.houseflow.model.BulletinPost(
-                id = "bp-3", householdId = "household-1",
-                authorName = "Priya", title = "House dinner Sunday night",
-                message = "Making pasta — let me know dietary restrictions!",
-                isEvent = true, timestamp = System.currentTimeMillis() - 172800_000
-            ),
-            com.example.houseflow.model.BulletinPost(
-                id = "bp-4", householdId = "household-1",
-                authorName = "Jake", title = "Quiet hours reminder",
-                message = "Please keep it down after 11pm on weeknights. Some of us have 8am shifts.",
-                isEvent = false, timestamp = System.currentTimeMillis() - 259200_000
-            ),
-        )
-    }
-
     // --- Availability ---
 
-    fun addBusyBlock(block: BusyBlock) {
+    fun addBusyBlock(block: BusyBlock) = viewModelScope.launch {
         householdRepo.addBusyBlock(block)
         refreshMyBlocks()
         refreshHouseholdBlocks()
     }
 
-    fun deleteBusyBlock(blockId: String) {
+    fun deleteBusyBlock(blockId: String) = viewModelScope.launch {
         householdRepo.deleteBusyBlock(blockId)
         refreshMyBlocks()
         refreshHouseholdBlocks()
     }
 
-    private fun refreshMyBlocks() {
-        _myBusyBlocks.value = householdRepo.getBusyBlocks(_currentUser.value?.id ?: return)
+    private suspend fun refreshMyBlocks() {
+        _myBusyBlocks.value = householdRepo.getBusyBlocks(_currentUser.value?.uid ?: return)
     }
 
-    private fun refreshHouseholdBlocks() {
+    private suspend fun refreshHouseholdBlocks() {
         val householdId = _household.value?.id ?: return
-        _householdBusyBlocks.value = householdRepo.getRoommates(householdId).associate { r ->
-            r.id to householdRepo.getBusyBlocks(r.id)
+        val map = mutableMapOf<String, List<BusyBlock>>()
+        for (roommate in householdRepo.getRoommates(householdId)) {
+            map[roommate.userId] = householdRepo.getBusyBlocks(roommate.userId)
         }
+        _householdBusyBlocks.value = map
     }
 
     // --- Chores ---
 
-    fun addChore(chore: Chore) {
+    fun addChore(chore: Chore) = viewModelScope.launch {
         choreRepo.addChore(chore)
         refreshChores()
-        runAssignments()
+        runAssignmentsInternal()
     }
 
-    fun updateChore(chore: Chore) {
+    fun updateChore(chore: Chore) = viewModelScope.launch {
         choreRepo.updateChore(chore)
         refreshChores()
     }
 
-    fun deleteChore(choreId: String) {
+    fun deleteChore(choreId: String) = viewModelScope.launch {
         choreRepo.deleteChore(choreId)
         refreshChores()
         refreshAssignments()
     }
 
-    fun runAssignments() {
+    fun runAssignments() = viewModelScope.launch { runAssignmentsInternal() }
+
+    private suspend fun runAssignmentsInternal() {
         val household = _household.value ?: return
         val roommates = _roommates.value
         val chores = _chores.value
         if (chores.isEmpty() || roommates.isEmpty()) return
 
-        val busyBlocksByRoommate = roommates.associate { r ->
-            r.id to householdRepo.getBusyBlocks(r.id)
-        }
+        val busyBlocksByRoommate = mutableMapOf<String, List<BusyBlock>>()
+        for (r in roommates) busyBlocksByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
+
         val history = choreRepo.getAssignments(household.id)
         val msPerDay = 86_400_000L
         val weekEnd = weekStart + 7 * msPerDay
@@ -244,9 +321,9 @@ class AppViewModel(
         refreshAssignments()
     }
 
-    fun markComplete(assignmentId: String) {
-        val householdId = _household.value?.id ?: return
-        val completed = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return
+    fun markComplete(assignmentId: String) = viewModelScope.launch {
+        val householdId = _household.value?.id ?: return@launch
+        val completed = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
         choreRepo.updateAssignmentStatus(assignmentId, AssignmentStatus.COMPLETED)
 
         val chore = _chores.value.find { it.id == completed.choreId }
@@ -261,7 +338,8 @@ class AppViewModel(
             val history = choreRepo.getAssignments(householdId)
             val alreadyScheduled = history.any { it.choreId == chore.id && it.weekStart == nextWeekStart }
             if (!alreadyScheduled) {
-                val busyByRoommate = roommates.associate { it.id to householdRepo.getBusyBlocks(it.id) }
+                val busyByRoommate = mutableMapOf<String, List<BusyBlock>>()
+                for (r in roommates) busyByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
                 val next = AssignmentAlgorithm.assignOne(chore, roommates, busyByRoommate, history, nextWeekStart)
                 choreRepo.addAssignment(next)
             }
@@ -269,14 +347,15 @@ class AppViewModel(
         refreshAssignments()
     }
 
-    fun swapAssignment(assignmentId: String) {
-        val householdId = _household.value?.id ?: return
-        val current = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return
-        val chore = _chores.value.find { it.id == current.choreId } ?: return
-        val candidates = _roommates.value.filter { it.id != current.assignedToRoommateId }
-        if (candidates.isEmpty()) return
+    fun swapAssignment(assignmentId: String) = viewModelScope.launch {
+        val householdId = _household.value?.id ?: return@launch
+        val current = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
+        val chore = _chores.value.find { it.id == current.choreId } ?: return@launch
+        val candidates = _roommates.value.filter { it.userId != current.assignedToRoommateId }
+        if (candidates.isEmpty()) return@launch
 
-        val busyByRoommate = candidates.associate { it.id to householdRepo.getBusyBlocks(it.id) }
+        val busyByRoommate = mutableMapOf<String, List<BusyBlock>>()
+        for (r in candidates) busyByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
         val history = choreRepo.getAssignments(householdId)
         val reassigned = AssignmentAlgorithm
             .assignOne(chore, candidates, busyByRoommate, history, current.weekStart)
@@ -287,27 +366,29 @@ class AppViewModel(
 
     // --- Bulletin ---
 
-    fun addBulletinPost(title: String, message: String, isEvent: Boolean) {
-        val user = _currentUser.value ?: return
-        val household = _household.value ?: return
+    fun addBulletinPost(title: String, message: String, isEvent: Boolean) = viewModelScope.launch {
+        val user = _currentUser.value ?: return@launch
+        val household = _household.value ?: return@launch
         val post = BulletinPost(
-            id = java.util.UUID.randomUUID().toString(),
+            id = UUID.randomUUID().toString(),
             householdId = household.id,
-            authorName = user.name,
+            authorName = user.displayName,
             title = title,
             message = message,
             isEvent = isEvent,
             timestamp = System.currentTimeMillis()
         )
-        _bulletinPosts.value = listOf(post) + _bulletinPosts.value
+        bulletinRepo.addPost(post)
+        _bulletinPosts.value = bulletinRepo.getPosts(household.id)
     }
 
-    fun deleteBulletinPost(postId: String) {
-        _bulletinPosts.value = _bulletinPosts.value.filter { it.id != postId }
+    fun deleteBulletinPost(postId: String) = viewModelScope.launch {
+        bulletinRepo.deletePost(postId)
+        _household.value?.let { _bulletinPosts.value = bulletinRepo.getPosts(it.id) }
     }
 
-    fun refreshOverdue() {
-        val householdId = _household.value?.id ?: return
+    fun refreshOverdue() = viewModelScope.launch {
+        val householdId = _household.value?.id ?: return@launch
         val now = System.currentTimeMillis()
         val choresById = _chores.value.associateBy { it.id }
         choreRepo.getAssignments(householdId).forEach { a ->
@@ -324,11 +405,11 @@ class AppViewModel(
         refreshAssignments()
     }
 
-    private fun refreshChores() {
+    private suspend fun refreshChores() {
         _chores.value = choreRepo.getChores(_household.value?.id ?: return)
     }
 
-    private fun refreshAssignments() {
+    private suspend fun refreshAssignments() {
         _assignments.value = choreRepo.getAssignments(_household.value?.id ?: return)
     }
 
@@ -336,8 +417,11 @@ class AppViewModel(
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 AppViewModel(
+                    authRepo = AppContainer.authRepository,
+                    userRepo = AppContainer.userRepository,
                     householdRepo = AppContainer.householdRepository,
-                    choreRepo = AppContainer.choreRepository
+                    choreRepo = AppContainer.choreRepository,
+                    bulletinRepo = AppContainer.bulletinRepository
                 )
             }
         }

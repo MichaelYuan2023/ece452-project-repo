@@ -1,9 +1,13 @@
 package com.example.houseflow.model
 
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+
 enum class AssignmentStatus { PENDING, COMPLETED, MISSED }
 
+@Entity(tableName = "assignments")
 data class ChoreAssignment(
-    val id: String,
+    @PrimaryKey val id: String,
     val choreId: String,
     val householdId: String,
     val assignedToRoommateId: String,

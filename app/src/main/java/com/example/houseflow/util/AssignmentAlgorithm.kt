@@ -36,11 +36,11 @@ object AssignmentAlgorithm {
         weekStart: Long
     ): ChoreAssignment {
         val scores = roommates.associateWith { r ->
-            score(r, chore, busyBlocksByRoommate[r.id] ?: emptyList(), history, weekStart)
+            score(r, chore, busyBlocksByRoommate[r.userId] ?: emptyList(), history, weekStart)
         }
         val best = scores.maxByOrNull { it.value }!!
         val winner = best.key
-        val winnerBlocks = busyBlocksByRoommate[winner.id] ?: emptyList()
+        val winnerBlocks = busyBlocksByRoommate[winner.userId] ?: emptyList()
         val isBusy = isBusyAt(winnerBlocks, chore.dueDayOfWeek, chore.dueHour)
 
         val reason = buildReason(winner, chore, winnerBlocks, history, weekStart, isBusy)
@@ -49,7 +49,7 @@ object AssignmentAlgorithm {
             id = UUID.randomUUID().toString(),
             choreId = chore.id,
             householdId = chore.householdId,
-            assignedToRoommateId = winner.id,
+            assignedToRoommateId = winner.userId,
             weekStart = weekStart,
             status = AssignmentStatus.PENDING,
             reason = reason,
@@ -76,20 +76,20 @@ object AssignmentAlgorithm {
         // Recent assignment penalty: -10 per assignment in the past 2 weeks
         val twoWeeksAgo = weekStart - 14L * 24 * 3600 * 1000
         val recentCount = history.count {
-            it.assignedToRoommateId == roommate.id && it.weekStart >= twoWeeksAgo
+            it.assignedToRoommateId == roommate.userId && it.weekStart >= twoWeeksAgo
         }
         points -= recentCount * 10
 
         // Weekly workload penalty: -5 per chore already assigned this week
         val thisWeekCount = history.count {
-            it.assignedToRoommateId == roommate.id && it.weekStart == weekStart
+            it.assignedToRoommateId == roommate.userId && it.weekStart == weekStart
         }
         points -= thisWeekCount * 5
 
         // Repeated chore penalty: -15 if they had this exact chore last week
         val lastWeek = weekStart - 7L * 24 * 3600 * 1000
         val hadItLastWeek = history.any {
-            it.assignedToRoommateId == roommate.id &&
+            it.assignedToRoommateId == roommate.userId &&
             it.choreId == chore.id &&
             it.weekStart == lastWeek
         }
@@ -115,12 +115,12 @@ object AssignmentAlgorithm {
         val day = DAYS.getOrElse(chore.dueDayOfWeek) { "?" }
         val time = "%02d:00".format(chore.dueHour)
         val thisWeekCount = history.count {
-            it.assignedToRoommateId == winner.id && it.weekStart == weekStart
+            it.assignedToRoommateId == winner.userId && it.weekStart == weekStart
         }
         return when {
-            isBusy -> "Assigned to ${winner.name} — conflict: busy $day $time, but fewest tasks this week"
-            thisWeekCount == 0 -> "Assigned to ${winner.name} — free $day $time, no other chores this week"
-            else -> "Assigned to ${winner.name} — free $day $time, lightest workload ($thisWeekCount chore(s) this week)"
+            isBusy -> "Assigned to ${winner.displayName} — conflict: busy $day $time, but fewest tasks this week"
+            thisWeekCount == 0 -> "Assigned to ${winner.displayName} — free $day $time, no other chores this week"
+            else -> "Assigned to ${winner.displayName} — free $day $time, lightest workload ($thisWeekCount chore(s) this week)"
         }
     }
 }
