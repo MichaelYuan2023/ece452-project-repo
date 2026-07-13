@@ -87,6 +87,11 @@ class AppViewModel(
     private val _bulletinPosts = MutableStateFlow<List<BulletinPost>>(emptyList())
     val bulletinPosts: StateFlow<List<BulletinPost>> = _bulletinPosts.asStateFlow()
 
+    // All-time completed chore count per roommate, keyed by userId. Consumed by
+    // the roommate UI and available to the HF-8 recommendation engine.
+    private val _completionCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val completionCounts: StateFlow<Map<String, Int>> = _completionCounts.asStateFlow()
+
     val sessionState: StateFlow<SessionState> =
         combine(_currentUser, _household, _restoring) { user, household, restoring ->
             when {
@@ -217,6 +222,7 @@ class AppViewModel(
         _assignments.value = emptyList()
         _assignmentsRun.value = false
         _bulletinPosts.value = emptyList()
+        _completionCounts.value = emptyMap()
     }
 
     // --- Household ---
@@ -448,6 +454,7 @@ class AppViewModel(
         val householdId = _household.value?.id ?: return@launch
         val completed = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
         choreRepo.updateAssignmentStatus(assignmentId, AssignmentStatus.COMPLETED)
+        userRepo.incrementCompletedCount(completed.assignedToRoommateId)
 
         val chore = _chores.value.find { it.id == completed.choreId }
         val roommates = _roommates.value
@@ -534,6 +541,15 @@ class AppViewModel(
 
     private suspend fun refreshAssignments() {
         _assignments.value = choreRepo.getAssignments(_household.value?.id ?: return)
+        refreshCompletionCounts()
+    }
+
+    private suspend fun refreshCompletionCounts() {
+        val counts = mutableMapOf<String, Int>()
+        for (r in _roommates.value) {
+            counts[r.userId] = choreRepo.getCompletedCount(r.userId)
+        }
+        _completionCounts.value = counts
     }
 
     companion object {

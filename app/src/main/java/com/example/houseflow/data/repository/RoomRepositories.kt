@@ -22,6 +22,7 @@ class RoomUserRepository(private val userDao: UserDao) : UserRepository {
     override suspend fun getUser(uid: String): com.example.houseflow.model.User? = userDao.getUser(uid)
     override suspend fun upsertUser(user: com.example.houseflow.model.User) = userDao.upsert(user)
     override suspend fun getUsers() = userDao.getAll()
+    override suspend fun incrementCompletedCount(uid: String) = userDao.incrementCompletedCount(uid)
 }
 
 class RoomHouseholdRepository(
@@ -116,6 +117,8 @@ class RoomChoreRepository(
 
     override suspend fun updateAssignmentStatus(assignmentId: String, status: AssignmentStatus) =
         assignmentDao.updateStatus(assignmentId, status)
+
+    override suspend fun getCompletedCount(userId: String): Int = assignmentDao.countCompleted(userId)
 }
 
 class RoomBulletinRepository(private val bulletinDao: BulletinDao) : BulletinRepository {

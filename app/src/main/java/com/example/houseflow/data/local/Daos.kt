@@ -24,6 +24,9 @@ interface UserDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(user: User)
+
+    @Query("UPDATE users SET completedChoreCount = completedChoreCount + 1 WHERE uid = :uid")
+    suspend fun incrementCompletedCount(uid: String)
 }
 
 @Dao
@@ -96,6 +99,9 @@ interface AssignmentDao {
 
     @Query("UPDATE assignments SET status = :status WHERE id = :assignmentId")
     suspend fun updateStatus(assignmentId: String, status: AssignmentStatus)
+
+    @Query("SELECT COUNT(*) FROM assignments WHERE assignedToRoommateId = :userId AND status = 'COMPLETED'")
+    suspend fun countCompleted(userId: String): Int
 }
 
 @Dao

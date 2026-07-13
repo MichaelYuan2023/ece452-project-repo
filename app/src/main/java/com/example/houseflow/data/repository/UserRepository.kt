@@ -8,4 +8,5 @@ interface UserRepository {
     suspend fun getUser(uid: String): User?
     suspend fun upsertUser(user: User)
     suspend fun getUsers(): List<User>
+    suspend fun incrementCompletedCount(uid: String)
 }

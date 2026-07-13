@@ -89,6 +89,7 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
     val chores by vm.chores.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
     val myRole by vm.currentUserRole.collectAsState()
+    val completionCounts by vm.completionCounts.collectAsState()
     var selectedRoommate by remember { mutableStateOf<Roommate?>(null) }
     var pendingAction by remember { mutableStateOf<Pair<Roommate, RoleAction>?>(null) }
 
@@ -115,6 +116,7 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
                     RoommateListItem(
                         roommate = roommate,
                         action = roleActionFor(myRole, currentUser?.uid, roommate),
+                        completedCount = completionCounts[roommate.userId] ?: 0,
                         onClick = { selectedRoommate = roommate },
                         onActionClick = { action -> pendingAction = roommate to action }
                     )
@@ -134,6 +136,7 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
         RoommateProfileDialog(
             roommate = roommate,
             blocks = blocks,
+            completedCount = completionCounts[roommate.userId] ?: 0,
             assignedChoreNames = roommateAssignments.mapNotNull { a ->
                 val chore = chores.find { it.id == a.choreId }
                 if (chore != null) {
@@ -198,6 +201,7 @@ private fun RoleChangeConfirmDialog(
 private fun RoommateListItem(
     roommate: Roommate,
     action: RoleAction?,
+    completedCount: Int,
     onClick: () -> Unit,
     onActionClick: (RoleAction) -> Unit
 ) {
@@ -235,7 +239,7 @@ private fun RoommateListItem(
                     RoleBadge(roommate.role)
                 }
                 Text(
-                    "Tap to view schedule & chores",
+                    "$completedCount chore${if (completedCount != 1) "s" else ""} completed",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -279,6 +283,7 @@ private fun RoleBadge(role: HouseholdRole) {
 private fun RoommateProfileDialog(
     roommate: Roommate,
     blocks: List<BusyBlock>,
+    completedCount: Int,
     assignedChoreNames: List<String>,
     onDismiss: () -> Unit
 ) {
@@ -326,6 +331,21 @@ private fun RoommateProfileDialog(
                     // Legend
                     MiniTypeLegend()
                 }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Completion count section
+                Text(
+                    "Completed Chores",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "$completedCount chore${if (completedCount != 1) "s" else ""} completed all-time",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 Spacer(Modifier.height(16.dp))
 
