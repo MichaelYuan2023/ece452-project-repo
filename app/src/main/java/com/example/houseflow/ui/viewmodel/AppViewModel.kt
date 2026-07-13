@@ -132,7 +132,15 @@ class AppViewModel(
         authRepo.signIn(email.trim(), password).map { }
 
     suspend fun signUp(displayName: String, email: String, password: String): Result<Unit> =
-        authRepo.signUp(displayName.trim(), email.trim(), password).map { }
+        authRepo.signUp(displayName.trim(), email.trim(), password).map { firebaseUser ->
+            // The auth-state listener in init{} fires as soon as the account is
+            // created, before the display name set below finishes, so it caches a
+            // premature user whose displayName is still null and falls back to
+            // email. Re-sync here with the now-updated, in-memory-correct user.
+            val user = firebaseUser.toUser()
+            _currentUser.value = user
+            userRepo.upsertUser(user)
+        }
 
     fun signOut() {
         authRepo.signOut()
@@ -163,13 +171,27 @@ class AppViewModel(
     }
 
     private suspend fun loadHouseholdData(household: Household) {
-        _roommates.value = householdRepo.getRoommates(household.id)
+        _roommates.value = syncOwnRoommateDisplayName(household)
         refreshMyBlocks()
         refreshHouseholdBlocks()
         refreshChores()
         refreshAssignments()
         _bulletinPosts.value = bulletinRepo.getPosts(household.id)
         _assignmentsRun.value = _assignments.value.any { it.weekStart == weekStart }
+    }
+
+    // Self-heals a Roommate row whose displayName was captured before the
+    // signUp() display-name race above was fixed (or from any other stale
+    // write) — brings it back in line with the current User record.
+    private suspend fun syncOwnRoommateDisplayName(household: Household): List<Roommate> {
+        val roommates = householdRepo.getRoommates(household.id)
+        val user = _currentUser.value ?: return roommates
+        val mine = roommates.find { it.userId == user.uid } ?: return roommates
+        if (mine.displayName == user.displayName) return roommates
+
+        val corrected = mine.copy(displayName = user.displayName)
+        householdRepo.addRoommateToHousehold(household.id, corrected)
+        return roommates.map { if (it.userId == user.uid) corrected else it }
     }
 
     private fun clearSessionState() {
