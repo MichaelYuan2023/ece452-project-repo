@@ -54,7 +54,7 @@ See "Package Structure" below for the full current tree.
 
 ## App Overview
 
-**HouseFlow** is a roommate chore-tracking Android app that fairly assigns household chores based on each roommate's availability, plus a house bulletin board for announcements/events. Data persists on-device via Room (SQLite); authentication is real Firebase Auth (email/password). See `HANDOFF_auth_persistence.md` for the migration writeup.
+**HouseFlow** is a roommate chore-tracking Android app that fairly assigns household chores based on each roommate's availability, plus a house bulletin board for announcements/events. Users can create or join multiple households and switch between them. Data persists on-device via Room (SQLite); authentication is real Firebase Auth (email/password). See `HANDOFF_auth_persistence.md` for the migration writeup.
 
 ---
 
@@ -82,7 +82,7 @@ com.example.houseflow/
     AppContainer.kt                 ← composition root; Room-backed repositories
     DemoAccounts.kt                 ← seeded demo identities (real Firebase uids)
     local/
-      HouseflowDatabase.kt          ← Room @Database, seeds on first create
+      HouseflowDatabase.kt          ← Room @Database (version 2), seeds on first create
       Daos.kt                       ← Room @Dao interfaces
       Converters.kt                 ← Room TypeConverters
       DatabaseSeeder.kt             ← first-run demo data (household, chores, bulletin)
@@ -101,12 +101,13 @@ com.example.houseflow/
     navigation/AppNavGraph.kt       ← `when(sessionState)` gating; no NavController
     screen/
       AuthScreen.kt                 ← Firebase email/password sign-up + sign-in
-      JoinHouseholdScreen.kt
-      MainScreen.kt                 ← bottom-nav host (Roommates / My Schedule / Chores / Bulletin)
+      HouseholdSelectionScreen.kt   ← list/create/join households; has its own sign-out icon
+      MainScreen.kt                 ← bottom-nav host (Roommates / Schedule / Chores / Bulletin / Settings)
       AvailabilityScreen.kt
       RoommateAvailabilityScreen.kt ← household-wide weekly availability grid
       ChoreListScreen.kt
       DashboardScreen.kt            ← House Bulletin: announcements/events feed
+      SettingsScreen.kt             ← sign-out + entry point to household switcher
     theme/                          ← Color.kt, Shape.kt, Theme.kt, Type.kt
     viewmodel/AppViewModel.kt       ← single ViewModel for the entire app
   util/AssignmentAlgorithm.kt       ← scoring engine
@@ -146,17 +147,18 @@ data class ChoreAssignment(val id: String, val choreId: String, val householdId:
 ```
 
 ### `Household`
-Seed: `id="household-1"`, `name="Demo House"`, `inviteCode="DEMO123"`.
+Seed: `id="household-1"`, `name="Demo House"`, `inviteCode="DEMO123"`. User-created households get a freshly generated, unique 6-character invite code (see `RoomHouseholdRepository.createHousehold` / `generateInviteCode()` in `RoomRepositories.kt` — excludes visually ambiguous characters like `0`/`O`, `1`/`I`).
 
 ### `User`
-The authenticated identity — `uid` is the Firebase Auth uid and is the single source of truth for a person across the app.
+The authenticated identity — `uid` is the Firebase Auth uid and is the single source of truth for a person across the app. `activeHouseholdId` is the household to resume into on sign-in (see `AppViewModel.activateHousehold`); null until the user has joined/created/selected one.
 ```kotlin
 data class User(val uid: String, val email: String, val displayName: String,
-    val completedChoreCount: Int = 0) // placeholder; unused until HF-7
+    val completedChoreCount: Int = 0, // placeholder; unused until HF-7
+    val activeHouseholdId: String? = null)
 ```
 
 ### `Roommate`
-A household-scoped **membership** record, not an identity — links a `User` (by uid) to a household. No longer carries `id`/`name`.
+A household-scoped **membership** record, not an identity — links a `User` (by uid) to a household. No longer carries `id`/`name`. Primary key is composite (`userId`, `householdId`), so one `User` can have a `Roommate` row per household they belong to — this is what makes multi-household support possible with no schema change needed there. `displayName` is denormalized from `User.displayName` at join/create time; `AppViewModel.syncOwnRoommateDisplayName()` self-heals it back in line with the `User` record if it ever drifts (e.g. a stale value written before a display-name bug was fixed).
 ```kotlin
 data class Roommate(val userId: String, val householdId: String, val displayName: String)
 ```
@@ -180,7 +182,7 @@ All repositories are Room-backed and every method is `suspend` (implementations 
 
 **`UserRepository`**: `getUser(uid)`, `upsertUser(user)`, `getUsers()`.
 
-**`HouseholdRepository`**: `joinHousehold(code): Household?`, `getHouseholdForUser(userId): Household?` (restores session on launch — replaces the old `getHousehold`), `addRoommateToHousehold`, `getRoommates`, `getBusyBlocks`, `addBusyBlock`, `deleteBusyBlock`.
+**`HouseholdRepository`**: `joinHousehold(code): Result<Household>` (failure = invalid code, surfaced by the ViewModel/UI as "Invalid house code"), `createHousehold(name, creatorUserId, creatorDisplayName): Household` (generates a unique invite code and inserts the creator as a `Roommate`), `getHouseholdsForUser(userId): List<Household>` (every household the user belongs to — a user can belong to several), `getHousehold(householdId): Household?`, `addRoommateToHousehold`, `getRoommates`, `getBusyBlocks`, `addBusyBlock`, `deleteBusyBlock`.
 
 **`ChoreRepository`**: `getChores`, `addChore`, `updateChore`, `deleteChore` (cascades to assignments), `getAssignments`, `addAssignment`, `updateAssignment`, `updateAssignmentStatus`.
 
@@ -198,19 +200,23 @@ Single ViewModel scoped to the nav graph via `AppViewModel.Factory`, constructed
 |---|---|---|
 | `currentUser` | `User?` | Restored from `authRepo.currentUser` on launch; null when signed out |
 | `sessionState` | `SessionState` (`LOADING, SIGNED_OUT, NEEDS_HOUSEHOLD, IN_HOUSEHOLD`) | Derived from `currentUser` + `household`; drives top-level nav |
-| `household` | `Household?` | Null until `joinHousehold()` succeeds or is restored on launch |
-| `roommates` | `List<Roommate>` | All in the household |
+| `household` | `Household?` | The **active** household. Null until one is joined/created/selected, or restored from `User.activeHouseholdId` on launch |
+| `households` | `List<Household>` | Every household the current user belongs to |
+| `showHouseholdSwitcher` | `Boolean` | True to show `HouseholdSelectionScreen` on top of an already-active session (opened from Settings), without disturbing `sessionState` |
+| `roommates` | `List<Roommate>` | All in the active household |
 | `myBusyBlocks` | `List<BusyBlock>` | Current user only |
 | `householdBusyBlocks` | `Map<String, List<BusyBlock>>` | All roommates' blocks, keyed by Firebase uid |
-| `chores` | `List<Chore>` | All household chores |
+| `chores` | `List<Chore>` | All active-household chores |
 | `assignments` | `List<ChoreAssignment>` | All weeks |
 | `assignmentsRun` | `Boolean` | Button guard; resets when chores change |
-| `bulletinPosts` | `List<BulletinPost>` | All posts for the household |
+| `bulletinPosts` | `List<BulletinPost>` | All posts for the active household |
 | `weekStart` | `Long` | This week's Monday epoch ms, computed once |
 
-Key actions: `signIn(email, password): Result<Unit>`, `signUp(displayName, email, password): Result<Unit>`, `signOut()`, `joinHousehold(code): Boolean` (also seeds a starter schedule for brand-new users via `seedUserSchedule`), `addBusyBlock`, `deleteBusyBlock`, `addChore` (auto-runs assignments), `updateChore`, `deleteChore`, `runAssignments()`, `markComplete(id)`, `swapAssignment(id)`, `refreshOverdue()`, `addBulletinPost(title, message, isEvent)`, `deleteBulletinPost(id)`.
+Key actions: `signIn(email, password): Result<Unit>`, `signUp(displayName, email, password): Result<Unit>`, `signOut()`, `joinHousehold(code): Boolean`, `createHousehold(name)`, `selectHousehold(householdId)` (switch active household to one already joined), `openHouseholdSwitcher()` / `closeHouseholdSwitcher()`, `addBusyBlock`, `deleteBusyBlock`, `addChore` (auto-runs assignments), `updateChore`, `deleteChore`, `runAssignments()`, `markComplete(id)`, `swapAssignment(id)`, `refreshOverdue()`, `addBulletinPost(title, message, isEvent)`, `deleteBulletinPost(id)`.
 
-Mutation actions (`addBusyBlock`, `addChore`, etc.) are fire-and-forget `viewModelScope.launch` calls; `signIn`/`signUp`/`joinHousehold` are `suspend` and must be called from a coroutine.
+Mutation actions (`addBusyBlock`, `addChore`, `createHousehold`, `selectHousehold`, etc.) are fire-and-forget `viewModelScope.launch` calls; `signIn`/`signUp`/`joinHousehold` are `suspend` and must be called from a coroutine (`joinHousehold` returns `Boolean` so the UI can show an inline "Invalid house code" error on `false`).
+
+Joining, creating, or selecting a household all funnel through a private `activateHousehold(household)` helper: it persists the choice as `User.activeHouseholdId`, loads the household's data, and refreshes `households`. `loadHouseholdData()` also runs two self-heal steps on every load: `syncOwnRoommateDisplayName()` (see `Roommate` above) and `removeMockedScheduleBlocks()`, which sweeps away any leftover auto-seeded busy blocks (ids prefixed `seed-`) from when the app used to give new members a fake starter timetable — that seeding was removed; new members now start with an empty schedule.
 
 `runAssignments()` builds frequency-aware slots (one per day for DAILY, one per interval for EVERY_N_DAYS, once for WEEKLY/ONE_TIME) skipping already-assigned slots, then calls `AssignmentAlgorithm.assignOne()` per slot.
 
@@ -239,26 +245,29 @@ Iterates chores and scores every roommate for each one. The accumulating `newAss
 
 ## Navigation
 
-There is no `NavController` — `AppNavGraph` is a plain `when` over `AppViewModel.sessionState`:
+There is no `NavController` — `AppNavGraph` is a plain `when` over `AppViewModel.sessionState`, plus one extra boolean layered on top:
 
 ```
-LOADING  →  SIGNED_OUT (AuthScreen)  →  NEEDS_HOUSEHOLD (JoinHouseholdScreen)  →  IN_HOUSEHOLD (MainScreen)
+LOADING  →  SIGNED_OUT (AuthScreen)  →  NEEDS_HOUSEHOLD (HouseholdSelectionScreen)  →  IN_HOUSEHOLD (MainScreen)
+                                                                                             ↕
+                                                                          showHouseholdSwitcher (HouseholdSelectionScreen, onBack)
 ```
 
-Signing in/up, joining a household, and signing out all just change `sessionState`; the right screen follows automatically. (Tab navigation within `MainScreen` is local `remember` state, unrelated to this.)
+Signing in/up, joining/creating/selecting a household, and signing out all just change `sessionState`; the right screen follows automatically. `showHouseholdSwitcher` reuses `HouseholdSelectionScreen` on top of an already-active `IN_HOUSEHOLD` session (opened from Settings) without touching `sessionState` itself — `onBack` closes it via `vm.closeHouseholdSwitcher()`. (Tab navigation within `MainScreen` is local `remember` state, unrelated to this.)
 
-`MainScreen` is a `Scaffold` with a bottom `NavigationBar`: tab 0 = Roommates (`RoommateAvailabilityScreen`), tab 1 = My Schedule (`AvailabilityScreen`, also owns the sign-out action), tab 2 = Chores (`ChoreListScreen`), tab 3 = Bulletin (`DashboardScreen`).
+`MainScreen` is a `Scaffold` with a bottom `NavigationBar` (5 tabs): 0 = Roommates (`RoommateAvailabilityScreen`), 1 = Schedule (`AvailabilityScreen` — label reads "Schedule" in the nav bar, "My Schedule" in its top bar), 2 = Chores (`ChoreListScreen`), 3 = Bulletin (`DashboardScreen`), 4 = Settings (`SettingsScreen`, owns the sign-out action and the entry point to the household switcher).
 
 ---
 
 ## Screens
 
 - **AuthScreen**: Firebase email/password sign-up and sign-in, toggled via local state; calls `vm.signIn(email, password)` or `vm.signUp(displayName, email, password)`.
-- **JoinHouseholdScreen**: invite-code entry, demo code `DEMO123`, shows inline error on failure.
-- **AvailabilityScreen**: lists/adds/deletes the current user's `BusyBlock`s. Shared `SimpleDropdown` composable lives here.
+- **HouseholdSelectionScreen**: lists households the user already belongs to (tap to `selectHousehold`), a "Create a Household" name field (`createHousehold`), and a "Join a Household" invite-code field (`joinHousehold`, demo code `DEMO123`) with an inline "Invalid house code" error on failure. Has a sign-out icon top-right (`onSignOut`) and, when opened as the switcher (not the initial gate), a back icon (`onBack`).
+- **AvailabilityScreen**: lists/adds/deletes the current user's `BusyBlock`s. No longer owns sign-out (moved to `SettingsScreen`). Shared `SimpleDropdown` composable lives here.
 - **RoommateAvailabilityScreen**: read-only weekly grid showing all roommates' busy blocks, color-coded by `BlockType`. Hour window expands dynamically to cover all blocks.
 - **ChoreListScreen**: lists/adds/edits/deletes chores. "Run Fair Assignment" button disabled once run or if no chores. Also renders the current user's `ChoreAssignment`s this week as cards (color-coded: error=conflict, secondary=completed), with "Mark Complete" and "Swap" actions.
 - **DashboardScreen**: House Bulletin — announcements/events feed backed by `BulletinPost`. Add/delete posts, `isEvent` distinguishes events from announcements.
+- **SettingsScreen**: account info (display name, email), a "Households" row that opens the household switcher (`vm.openHouseholdSwitcher()`), and sign-out.
 
 ---
 
@@ -272,7 +281,7 @@ Seeding is now a one-time `RoomDatabase.Callback.onCreate` step, not code baked 
 | Jake | `R891SPtU09hpwN985sJBcZojsBg2` | Full-time work Mon–Fri 8–17 |
 | Priya | `NvrEZtU6yae7BtKgFOHecuQlrz52` | Classes Mon–Thu 18–21, Club Sat 10–14 |
 
-`DatabaseSeeder` also seeds 5 household chores and 4 bulletin posts. Any brand-new (non-demo) user who joins the household via `joinHousehold()` gets a separate 10-block starter timetable from `AppViewModel.seedUserSchedule()`, skipped if they already have blocks.
+`DatabaseSeeder` also seeds 5 household chores and 4 bulletin posts. Brand-new (non-demo) users no longer get an auto-generated starter timetable — that seeding step (`AppViewModel.seedUserSchedule()`) was removed; `AppViewModel.removeMockedScheduleBlocks()` cleans up any already-seeded blocks (ids prefixed `seed-`) left over from before the change. My Schedule starts empty for everyone except the three demo accounts above.
 
 ---
 
@@ -282,11 +291,12 @@ The persistence and auth migrations described in earlier versions of this doc ar
 
 Penalty weights for the assignment algorithm are still plain constants in `AssignmentAlgorithm.score()` if they need tuning.
 
+`HouseflowDatabase` uses `fallbackToDestructiveMigration(dropAllTables = true)` rather than real `Migration` objects — acceptable while there's no production data to preserve, but revisit before a real release. Bump `version` in `@Database(...)` whenever an `@Entity` field changes.
+
 ---
 
 ## What Is Not Yet Implemented
 
 - Push notifications / reminders
 - `effortScore` and `isTimeSensitive` captured in UI but not used by the algorithm
-- Multi-household support — only the one seeded household (`DEMO123`) exists; there's no "create a household" flow
 - `User.completedChoreCount` is a placeholder, always `0` (tracked as HF-7)
