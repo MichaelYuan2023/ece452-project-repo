@@ -14,6 +14,8 @@ import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.Roommate
+import java.util.UUID
+import kotlin.random.Random
 
 class RoomUserRepository(private val userDao: UserDao) : UserRepository {
     override suspend fun getUser(uid: String): com.example.houseflow.model.User? = userDao.getUser(uid)
@@ -27,11 +29,35 @@ class RoomHouseholdRepository(
     private val busyBlockDao: BusyBlockDao,
 ) : HouseholdRepository {
 
-    override suspend fun joinHousehold(code: String): Household? =
-        householdDao.getByInviteCode(code.trim().uppercase())
+    override suspend fun joinHousehold(code: String): Result<Household> {
+        val household = householdDao.getByInviteCode(code.trim().uppercase())
+        return household?.let { Result.success(it) }
+            ?: Result.failure(NoSuchElementException("Invalid house code"))
+    }
 
-    override suspend fun getHouseholdForUser(userId: String): Household? =
-        membershipDao.getByUser(userId)?.let { householdDao.getById(it.householdId) }
+    override suspend fun createHousehold(
+        name: String,
+        creatorUserId: String,
+        creatorDisplayName: String
+    ): Household {
+        var code: String
+        do {
+            code = generateInviteCode()
+        } while (householdDao.getByInviteCode(code) != null)
+
+        val household = Household(id = UUID.randomUUID().toString(), name = name, inviteCode = code)
+        householdDao.upsert(household)
+        membershipDao.upsert(
+            Roommate(userId = creatorUserId, householdId = household.id, displayName = creatorDisplayName)
+        )
+        return household
+    }
+
+    override suspend fun getHouseholdsForUser(userId: String): List<Household> =
+        membershipDao.getAllByUser(userId).mapNotNull { householdDao.getById(it.householdId) }
+
+    override suspend fun getHousehold(householdId: String): Household? =
+        householdDao.getById(householdId)
 
     override suspend fun addRoommateToHousehold(householdId: String, roommate: Roommate) =
         membershipDao.upsert(roommate)
@@ -46,6 +72,12 @@ class RoomHouseholdRepository(
 
     override suspend fun deleteBusyBlock(blockId: String) = busyBlockDao.delete(blockId)
 }
+
+// Excludes visually ambiguous characters (0/O, 1/I).
+private const val INVITE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+private fun generateInviteCode(): String =
+    (1..6).map { INVITE_CODE_CHARS[Random.nextInt(INVITE_CODE_CHARS.length)] }.joinToString("")
 
 class RoomChoreRepository(
     private val choreDao: ChoreDao,

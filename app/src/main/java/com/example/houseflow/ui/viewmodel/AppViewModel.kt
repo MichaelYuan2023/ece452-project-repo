@@ -51,8 +51,18 @@ class AppViewModel(
     // True while we resolve a signed-in user's household on launch/sign-in.
     private val _restoring = MutableStateFlow(authRepo.currentUser != null)
 
+    // The household currently being viewed/worked in.
     private val _household = MutableStateFlow<Household?>(null)
     val household: StateFlow<Household?> = _household.asStateFlow()
+
+    // Every household the signed-in user belongs to.
+    private val _households = MutableStateFlow<List<Household>>(emptyList())
+    val households: StateFlow<List<Household>> = _households.asStateFlow()
+
+    // True to show the household list/create/join screen on top of an already
+    // active session (reached from Settings), rather than the initial gate.
+    private val _showHouseholdSwitcher = MutableStateFlow(false)
+    val showHouseholdSwitcher: StateFlow<Boolean> = _showHouseholdSwitcher.asStateFlow()
 
     private val _roommates = MutableStateFlow<List<Roommate>>(emptyList())
     val roommates: StateFlow<List<Roommate>> = _roommates.asStateFlow()
@@ -100,7 +110,10 @@ class AppViewModel(
             authRepo.authState().collect { firebaseUser ->
                 if (firebaseUser != null) {
                     _restoring.value = true
-                    val user = firebaseUser.toUser()
+                    // Preserve the previously persisted active household — reconstructing
+                    // from FirebaseUser alone would otherwise reset it to null every launch.
+                    val existing = userRepo.getUser(firebaseUser.uid)
+                    val user = firebaseUser.toUser().copy(activeHouseholdId = existing?.activeHouseholdId)
                     _currentUser.value = user
                     userRepo.upsertUser(user)
                     restoreHousehold(user)
@@ -136,10 +149,13 @@ class AppViewModel(
         )
 
     private suspend fun restoreHousehold(user: User) {
-        val household = householdRepo.getHouseholdForUser(user.uid)
-        if (household != null) {
-            _household.value = household
-            loadHouseholdData(household)
+        val households = householdRepo.getHouseholdsForUser(user.uid)
+        _households.value = households
+        val active = user.activeHouseholdId?.let { id -> households.find { it.id == id } }
+            ?: households.firstOrNull()
+        if (active != null) {
+            _household.value = active
+            loadHouseholdData(active)
         } else {
             _household.value = null
         }
@@ -158,6 +174,8 @@ class AppViewModel(
 
     private fun clearSessionState() {
         _household.value = null
+        _households.value = emptyList()
+        _showHouseholdSwitcher.value = false
         _roommates.value = emptyList()
         _myBusyBlocks.value = emptyList()
         _householdBusyBlocks.value = emptyMap()
@@ -172,18 +190,56 @@ class AppViewModel(
     // Returns true if the invite code is valid.
     suspend fun joinHousehold(code: String): Boolean {
         val user = _currentUser.value ?: return false
-        val household = householdRepo.joinHousehold(code) ?: return false
+        val household = householdRepo.joinHousehold(code).getOrNull() ?: return false
 
-        userRepo.upsertUser(user)
         householdRepo.addRoommateToHousehold(
             household.id,
             Roommate(userId = user.uid, householdId = household.id, displayName = user.displayName)
         )
         seedUserSchedule(user.uid)
+        activateHousehold(household)
+        return true
+    }
+
+    fun createHousehold(name: String) = viewModelScope.launch {
+        val user = _currentUser.value ?: return@launch
+        val household = householdRepo.createHousehold(name.trim(), user.uid, user.displayName)
+        seedUserSchedule(user.uid)
+        activateHousehold(household)
+    }
+
+    // Switches into a household the user is already a member of.
+    fun selectHousehold(householdId: String) = viewModelScope.launch {
+        val household = _households.value.find { it.id == householdId }
+            ?: householdRepo.getHousehold(householdId)
+            ?: return@launch
+        activateHousehold(household)
+    }
+
+    // Opens the household list/create/join screen without disturbing the
+    // signed-in session — reachable from Settings.
+    fun openHouseholdSwitcher() {
+        _showHouseholdSwitcher.value = true
+    }
+
+    fun closeHouseholdSwitcher() {
+        // Only closeable if there's an active household to fall back to —
+        // otherwise session state itself still requires a household to be chosen.
+        if (_household.value != null) _showHouseholdSwitcher.value = false
+    }
+
+    // Makes the given household active: persists it as the user's resume point,
+    // loads its data, and refreshes the household list/switcher.
+    private suspend fun activateHousehold(household: Household) {
+        val user = _currentUser.value ?: return
+        val updatedUser = user.copy(activeHouseholdId = household.id)
+        _currentUser.value = updatedUser
+        userRepo.upsertUser(updatedUser)
 
         _household.value = household
+        _showHouseholdSwitcher.value = false
         loadHouseholdData(household)
-        return true
+        _households.value = householdRepo.getHouseholdsForUser(user.uid)
     }
 
     // Give a brand-new member a realistic starter timetable. Skipped if they

@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
         ChoreAssignment::class,
         BulletinPost::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -51,6 +51,9 @@ abstract class HouseflowDatabase : RoomDatabase() {
                     HouseflowDatabase::class.java,
                     "houseflow.db"
                 )
+                    // No production data to preserve yet — destructive migration is
+                    // fine while the schema is still evolving pre-release.
+                    .fallbackToDestructiveMigration(dropAllTables = true)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             // Fires only when the DB file is first created.

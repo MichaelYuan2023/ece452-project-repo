@@ -11,5 +11,8 @@ data class User(
     @PrimaryKey val uid: String,
     val email: String,
     val displayName: String,
-    val completedChoreCount: Int = 0 // placeholder; populated in HF-7
+    val completedChoreCount: Int = 0, // placeholder; populated in HF-7
+    // The household the user was last active in, so sign-in can resume there
+    // instead of always landing on the household selection screen.
+    val activeHouseholdId: String? = null
 )
