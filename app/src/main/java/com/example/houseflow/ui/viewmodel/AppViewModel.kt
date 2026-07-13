@@ -12,7 +12,6 @@ import com.example.houseflow.data.repository.ChoreRepository
 import com.example.houseflow.data.repository.HouseholdRepository
 import com.example.houseflow.data.repository.UserRepository
 import com.example.houseflow.model.AssignmentStatus
-import com.example.houseflow.model.BlockType
 import com.example.houseflow.model.BulletinPost
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
@@ -171,6 +170,7 @@ class AppViewModel(
     }
 
     private suspend fun loadHouseholdData(household: Household) {
+        removeMockedScheduleBlocks(household.id)
         _roommates.value = syncOwnRoommateDisplayName(household)
         refreshMyBlocks()
         refreshHouseholdBlocks()
@@ -218,7 +218,6 @@ class AppViewModel(
             household.id,
             Roommate(userId = user.uid, householdId = household.id, displayName = user.displayName)
         )
-        seedUserSchedule(user.uid)
         activateHousehold(household)
         return true
     }
@@ -226,7 +225,6 @@ class AppViewModel(
     fun createHousehold(name: String) = viewModelScope.launch {
         val user = _currentUser.value ?: return@launch
         val household = householdRepo.createHousehold(name.trim(), user.uid, user.displayName)
-        seedUserSchedule(user.uid)
         activateHousehold(household)
     }
 
@@ -264,27 +262,15 @@ class AppViewModel(
         _households.value = householdRepo.getHouseholdsForUser(user.uid)
     }
 
-    // Give a brand-new member a realistic starter timetable. Skipped if they
-    // already have blocks (e.g. a demo roommate signing in as themselves).
-    private suspend fun seedUserSchedule(userId: String) {
-        if (householdRepo.getBusyBlocks(userId).isNotEmpty()) return
-
-        fun block(n: Int, day: Int, start: Int, end: Int, title: String, type: BlockType) =
-            BusyBlock("seed-$userId-$n", userId, day, start, end, title, type)
-
-        val blocks = listOf(
-            block(1, 0, 9, 12, "CS 446 Lecture", BlockType.CLASS),
-            block(2, 0, 14, 16, "ECE 452 Lab", BlockType.CLASS),
-            block(3, 1, 10, 12, "MATH 239 Lecture", BlockType.CLASS),
-            block(4, 2, 9, 12, "CS 446 Lecture", BlockType.CLASS),
-            block(5, 2, 16, 19, "Part-time job", BlockType.WORK),
-            block(6, 3, 10, 12, "MATH 239 Lecture", BlockType.CLASS),
-            block(7, 3, 13, 15, "Study group", BlockType.OTHER),
-            block(8, 4, 9, 11, "CS 446 Tutorial", BlockType.CLASS),
-            block(9, 4, 16, 19, "Part-time job", BlockType.WORK),
-            block(10, 5, 11, 13, "Intramurals", BlockType.CLUB),
-        )
-        blocks.forEach { householdRepo.addBusyBlock(it) }
+    // One-time cleanup of the fake starter timetable this app used to seed for
+    // every newly-joined/created member (ids "seed-<uid>-<n>"). New members no
+    // longer get one; this removes any that already landed in existing installs.
+    private suspend fun removeMockedScheduleBlocks(householdId: String) {
+        for (roommate in householdRepo.getRoommates(householdId)) {
+            householdRepo.getBusyBlocks(roommate.userId)
+                .filter { it.id.startsWith("seed-") }
+                .forEach { householdRepo.deleteBusyBlock(it.id) }
+        }
     }
 
     // --- Availability ---
