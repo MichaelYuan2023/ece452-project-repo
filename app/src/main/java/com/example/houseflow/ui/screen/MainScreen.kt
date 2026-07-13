@@ -56,7 +56,7 @@ fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
                         icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                        label = { Text("My Schedule") },
+                        label = { Text("Schedule") },
                         colors = navColors
                     )
                     NavigationBarItem(
