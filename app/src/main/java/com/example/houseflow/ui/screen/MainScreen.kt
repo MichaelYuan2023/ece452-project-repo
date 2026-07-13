@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -72,6 +73,13 @@ fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
                         label = { Text("Bulletin") },
                         colors = navColors
                     )
+                    NavigationBarItem(
+                        selected = selectedTab == 4,
+                        onClick = { selectedTab = 4 },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                        label = { Text("Settings") },
+                        colors = navColors
+                    )
                 }
             }
         }
@@ -79,9 +87,10 @@ fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
         Box(modifier = Modifier.padding(padding)) {
             when (selectedTab) {
                 0 -> RoommateAvailabilityScreen(vm)
-                1 -> AvailabilityScreen(vm, onSignOut = onSignOut)
+                1 -> AvailabilityScreen(vm)
                 2 -> ChoreListScreen(vm)
                 3 -> DashboardScreen(vm)
+                4 -> SettingsScreen(vm, onSignOut = onSignOut)
             }
         }
     }
