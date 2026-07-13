@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -51,7 +52,7 @@ import kotlinx.coroutines.launch
 // automatically, so there's no explicit onDone callback.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
+fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onSignOut: () -> Unit = {}) {
     val households by vm.households.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -70,6 +71,11 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSignOut) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }
                 }
             )

@@ -30,8 +30,12 @@ fun AppNavGraph() {
     when {
         session == SessionState.LOADING -> LoadingScreen()
         session == SessionState.SIGNED_OUT -> AuthScreen(vm)
-        session == SessionState.NEEDS_HOUSEHOLD -> HouseholdSelectionScreen(vm)
-        showSwitcher -> HouseholdSelectionScreen(vm, onBack = { vm.closeHouseholdSwitcher() })
+        session == SessionState.NEEDS_HOUSEHOLD -> HouseholdSelectionScreen(vm, onSignOut = { vm.signOut() })
+        showSwitcher -> HouseholdSelectionScreen(
+            vm,
+            onBack = { vm.closeHouseholdSwitcher() },
+            onSignOut = { vm.signOut() }
+        )
         else -> MainScreen(vm, onSignOut = { vm.signOut() })
     }
 }
