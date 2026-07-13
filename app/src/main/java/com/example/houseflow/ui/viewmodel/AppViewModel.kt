@@ -18,6 +18,7 @@ import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.model.Household
+import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.model.Roommate
 import com.example.houseflow.model.User
 import com.example.houseflow.util.AssignmentAlgorithm
@@ -98,6 +99,17 @@ class AppViewModel(
             scope = viewModelScope,
             started = SharingStarted.Eagerly,
             initialValue = if (authRepo.currentUser != null) SessionState.LOADING else SessionState.SIGNED_OUT
+        )
+
+    // The signed-in user's role in the active household — null while restoring
+    // or if they're somehow not a member (shouldn't happen in practice).
+    val currentUserRole: StateFlow<HouseholdRole?> =
+        combine(_roommates, _currentUser) { roommates, user ->
+            user?.let { u -> roommates.find { it.userId == u.uid }?.role }
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = null
         )
 
     val weekStart: Long = currentWeekStart()
@@ -216,7 +228,12 @@ class AppViewModel(
 
         householdRepo.addRoommateToHousehold(
             household.id,
-            Roommate(userId = user.uid, householdId = household.id, displayName = user.displayName)
+            Roommate(
+                userId = user.uid,
+                householdId = household.id,
+                displayName = user.displayName,
+                role = HouseholdRole.MEMBER
+            )
         )
         activateHousehold(household)
         return true
@@ -262,6 +279,38 @@ class AppViewModel(
         _households.value = householdRepo.getHouseholdsForUser(user.uid)
     }
 
+    // --- Roles ---
+
+    // Promotes a MEMBER to ADMIN. Allowed for CREATOR and ADMIN actors. Rejects
+    // (no-op) if the caller is a MEMBER, if the target is already something
+    // other than MEMBER, or if the target is the CREATOR — independent of
+    // whatever the UI already filtered out, per the permission matrix.
+    fun promoteToAdmin(targetUserId: String) = viewModelScope.launch {
+        val household = _household.value ?: return@launch
+        val actorRole = currentUserRole.value ?: return@launch
+        if (actorRole == HouseholdRole.MEMBER) return@launch
+
+        val target = _roommates.value.find { it.userId == targetUserId } ?: return@launch
+        if (target.role != HouseholdRole.MEMBER) return@launch // already ADMIN/CREATOR — nothing to promote
+
+        householdRepo.updateRoommateRole(household.id, targetUserId, HouseholdRole.ADMIN)
+        _roommates.value = householdRepo.getRoommates(household.id)
+    }
+
+    // Demotes an ADMIN to MEMBER. Only the CREATOR may do this — admins cannot
+    // demote anyone, including other admins or themselves. The CREATOR's own
+    // role can never be the target of this (or any) role change.
+    fun demoteToMember(targetUserId: String) = viewModelScope.launch {
+        val household = _household.value ?: return@launch
+        if (currentUserRole.value != HouseholdRole.CREATOR) return@launch
+
+        val target = _roommates.value.find { it.userId == targetUserId } ?: return@launch
+        if (target.role != HouseholdRole.ADMIN) return@launch // not an admin — nothing to demote
+
+        householdRepo.updateRoommateRole(household.id, targetUserId, HouseholdRole.MEMBER)
+        _roommates.value = householdRepo.getRoommates(household.id)
+    }
+
     // One-time cleanup of the fake starter timetable this app used to seed for
     // every newly-joined/created member (ids "seed-<uid>-<n>"). New members no
     // longer get one; this removes any that already landed in existing installs.
@@ -302,18 +351,28 @@ class AppViewModel(
 
     // --- Chores ---
 
+    // Chore authoring (create/edit/delete) is restricted to CREATOR and ADMIN.
+    // Enforced here independent of the UI, so a MEMBER invoking these directly
+    // is a no-op. Assignment status changes (markComplete, swapAssignment,
+    // runAssignments) are unrelated to authoring and are not gated.
+    private fun canManageChores(): Boolean =
+        currentUserRole.value == HouseholdRole.CREATOR || currentUserRole.value == HouseholdRole.ADMIN
+
     fun addChore(chore: Chore) = viewModelScope.launch {
+        if (!canManageChores()) return@launch
         choreRepo.addChore(chore)
         refreshChores()
         runAssignmentsInternal()
     }
 
     fun updateChore(chore: Chore) = viewModelScope.launch {
+        if (!canManageChores()) return@launch
         choreRepo.updateChore(chore)
         refreshChores()
     }
 
     fun deleteChore(choreId: String) = viewModelScope.launch {
+        if (!canManageChores()) return@launch
         choreRepo.deleteChore(choreId)
         refreshChores()
         refreshAssignments()

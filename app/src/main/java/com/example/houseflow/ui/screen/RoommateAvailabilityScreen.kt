@@ -27,6 +27,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,8 +48,27 @@ import androidx.compose.ui.unit.sp
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.BlockType
 import com.example.houseflow.model.BusyBlock
+import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.model.Roommate
 import com.example.houseflow.ui.viewmodel.AppViewModel
+
+// What promote/demote affordance (if any) the current user sees on a given
+// roommate's card, per the permission matrix in AppViewModel.
+private enum class RoleAction { PROMOTE, DEMOTE }
+
+private fun roleActionFor(myRole: HouseholdRole?, myUserId: String?, target: Roommate): RoleAction? {
+    if (target.userId == myUserId) return null // never an action on your own card
+    if (target.role == HouseholdRole.CREATOR) return null // never an action on the Creator's card
+    return when (myRole) {
+        HouseholdRole.CREATOR -> when (target.role) {
+            HouseholdRole.MEMBER -> RoleAction.PROMOTE
+            HouseholdRole.ADMIN -> RoleAction.DEMOTE
+            HouseholdRole.CREATOR -> null
+        }
+        HouseholdRole.ADMIN -> if (target.role == HouseholdRole.MEMBER) RoleAction.PROMOTE else null
+        HouseholdRole.MEMBER, null -> null
+    }
+}
 
 private val DAY_LABELS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 private val FULL_DAYS = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
@@ -67,7 +87,10 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
     val blocksByRoommate by vm.householdBusyBlocks.collectAsState()
     val assignments by vm.assignments.collectAsState()
     val chores by vm.chores.collectAsState()
+    val currentUser by vm.currentUser.collectAsState()
+    val myRole by vm.currentUserRole.collectAsState()
     var selectedRoommate by remember { mutableStateOf<Roommate?>(null) }
+    var pendingAction by remember { mutableStateOf<Pair<Roommate, RoleAction>?>(null) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Roommates") }) }
@@ -91,7 +114,9 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
                 items(roommates, key = { it.userId }) { roommate ->
                     RoommateListItem(
                         roommate = roommate,
-                        onClick = { selectedRoommate = roommate }
+                        action = roleActionFor(myRole, currentUser?.uid, roommate),
+                        onClick = { selectedRoommate = roommate },
+                        onActionClick = { action -> pendingAction = roommate to action }
                     )
                 }
                 item { Spacer(Modifier.height(8.dp)) }
@@ -123,10 +148,59 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
             onDismiss = { selectedRoommate = null }
         )
     }
+
+    // Confirmation required before every promote/demote takes effect.
+    pendingAction?.let { (roommate, action) ->
+        RoleChangeConfirmDialog(
+            roommateName = roommate.displayName,
+            action = action,
+            onConfirm = {
+                when (action) {
+                    RoleAction.PROMOTE -> vm.promoteToAdmin(roommate.userId)
+                    RoleAction.DEMOTE -> vm.demoteToMember(roommate.userId)
+                }
+                pendingAction = null
+            },
+            onDismiss = { pendingAction = null }
+        )
+    }
 }
 
 @Composable
-private fun RoommateListItem(roommate: Roommate, onClick: () -> Unit) {
+private fun RoleChangeConfirmDialog(
+    roommateName: String,
+    action: RoleAction,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (action == RoleAction.PROMOTE) "Promote to admin?" else "Demote to member?") },
+        text = {
+            Text(
+                if (action == RoleAction.PROMOTE) {
+                    "Promote $roommateName to admin? They will be able to create, edit, and delete chores for this household."
+                } else {
+                    "Demote $roommateName to member? They will no longer be able to create, edit, or delete chores for this household."
+                }
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(if (action == RoleAction.PROMOTE) "Promote" else "Demote")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun RoommateListItem(
+    roommate: Roommate,
+    action: RoleAction?,
+    onClick: () -> Unit,
+    onActionClick: (RoleAction) -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -154,15 +228,50 @@ private fun RoommateListItem(roommate: Roommate, onClick: () -> Unit) {
                 )
             }
             Spacer(Modifier.width(16.dp))
-            Column {
-                Text(roommate.displayName, style = MaterialTheme.typography.titleMedium)
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(roommate.displayName, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(8.dp))
+                    RoleBadge(roommate.role)
+                }
                 Text(
                     "Tap to view schedule & chores",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            if (action != null) {
+                TextButton(onClick = { onActionClick(action) }) {
+                    Text(if (action == RoleAction.PROMOTE) "Promote" else "Demote")
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun RoleBadge(role: HouseholdRole) {
+    val label = when (role) {
+        HouseholdRole.CREATOR -> "Creator"
+        HouseholdRole.ADMIN -> "Admin"
+        HouseholdRole.MEMBER -> "Member"
+    }
+    val color = when (role) {
+        HouseholdRole.CREATOR -> MaterialTheme.colorScheme.tertiary
+        HouseholdRole.ADMIN -> MaterialTheme.colorScheme.primary
+        HouseholdRole.MEMBER -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = color.copy(alpha = 0.12f),
+        contentColor = color
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+        )
     }
 }
 

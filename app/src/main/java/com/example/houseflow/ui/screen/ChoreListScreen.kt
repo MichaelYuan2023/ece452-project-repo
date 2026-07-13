@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreFrequency
+import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.ui.viewmodel.AppViewModel
 import java.util.UUID
 
@@ -73,6 +74,8 @@ fun ChoreListScreen(vm: AppViewModel) {
     val household by vm.household.collectAsState()
     val roommates by vm.roommates.collectAsState()
     val assignmentsRun by vm.assignmentsRun.collectAsState()
+    val currentUserRole by vm.currentUserRole.collectAsState()
+    val canManageChores = currentUserRole == HouseholdRole.CREATOR || currentUserRole == HouseholdRole.ADMIN
     var showDialog by remember { mutableStateOf(false) }
     var editingChore by remember { mutableStateOf<Chore?>(null) }
 
@@ -84,12 +87,14 @@ fun ChoreListScreen(vm: AppViewModel) {
     Scaffold(
         topBar = { TopAppBar(title = { Text("Chores") }) },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add chore")
+            if (canManageChores) {
+                FloatingActionButton(
+                    onClick = { showDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add chore")
+                }
             }
         }
     ) { padding ->
@@ -100,6 +105,21 @@ fun ChoreListScreen(vm: AppViewModel) {
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(8.dp))
+
+            if (!canManageChores) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Text(
+                        "Your role (Member) does not have permission to create chores. Please ask a household admin to do so.",
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+            }
 
             // Run Assignment button
             Button(
@@ -169,6 +189,7 @@ fun ChoreListScreen(vm: AppViewModel) {
                             chore = chore,
                             completedCount = completedCount,
                             assignedTo = assignedTo,
+                            canManage = canManageChores,
                             onEdit = { editingChore = chore },
                             onDelete = { vm.deleteChore(chore.id) }
                         )
@@ -306,6 +327,7 @@ private fun ChoreRow(
     chore: Chore,
     completedCount: Int,
     assignedTo: String?,
+    canManage: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -343,11 +365,13 @@ private fun ChoreRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit chore")
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete chore")
+            if (canManage) {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit chore")
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete chore")
+                }
             }
         }
     }

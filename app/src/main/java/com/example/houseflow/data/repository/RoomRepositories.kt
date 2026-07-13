@@ -13,6 +13,7 @@ import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.Household
+import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.model.Roommate
 import java.util.UUID
 import kotlin.random.Random
@@ -48,7 +49,12 @@ class RoomHouseholdRepository(
         val household = Household(id = UUID.randomUUID().toString(), name = name, inviteCode = code)
         householdDao.upsert(household)
         membershipDao.upsert(
-            Roommate(userId = creatorUserId, householdId = household.id, displayName = creatorDisplayName)
+            Roommate(
+                userId = creatorUserId,
+                householdId = household.id,
+                displayName = creatorDisplayName,
+                role = HouseholdRole.CREATOR
+            )
         )
         return household
     }
@@ -64,6 +70,11 @@ class RoomHouseholdRepository(
 
     override suspend fun getRoommates(householdId: String): List<Roommate> =
         membershipDao.getByHousehold(householdId)
+
+    override suspend fun updateRoommateRole(householdId: String, userId: String, newRole: HouseholdRole) {
+        val target = membershipDao.getMembership(userId, householdId) ?: return
+        membershipDao.upsert(target.copy(role = newRole))
+    }
 
     override suspend fun getBusyBlocks(roommateId: String): List<BusyBlock> =
         busyBlockDao.getForRoommate(roommateId)

@@ -46,6 +46,9 @@ interface MembershipDao {
     @Query("SELECT * FROM memberships WHERE userId = :userId")
     suspend fun getAllByUser(userId: String): List<Roommate>
 
+    @Query("SELECT * FROM memberships WHERE userId = :userId AND householdId = :householdId LIMIT 1")
+    suspend fun getMembership(userId: String, householdId: String): Roommate?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(membership: Roommate)
 }

@@ -7,6 +7,7 @@ import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.model.Household
+import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.model.Roommate
 
 // First-run demo seed. Runs once, when the Room database file is first created
@@ -24,9 +25,16 @@ object DatabaseSeeder {
             Household(id = householdId, name = "Demo House", inviteCode = "DEMO123")
         )
 
+        // All three role tiers are represented out of the box: Maya created the
+        // demo household, Jake is an admin, Priya is a plain member.
         DemoAccounts.all.forEach { user ->
+            val role = when (user.uid) {
+                DemoAccounts.MAYA.uid -> HouseholdRole.CREATOR
+                DemoAccounts.JAKE.uid -> HouseholdRole.ADMIN
+                else -> HouseholdRole.MEMBER
+            }
             db.membershipDao().upsert(
-                Roommate(userId = user.uid, householdId = householdId, displayName = user.displayName)
+                Roommate(userId = user.uid, householdId = householdId, displayName = user.displayName, role = role)
             )
         }
 
