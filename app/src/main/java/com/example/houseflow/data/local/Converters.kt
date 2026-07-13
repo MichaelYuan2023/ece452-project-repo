@@ -4,6 +4,7 @@ import androidx.room.TypeConverter
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.BlockType
 import com.example.houseflow.model.ChoreFrequency
+import com.example.houseflow.model.HouseholdRole
 
 // Stores the domain enums as their String name in SQLite.
 class Converters {
@@ -15,4 +16,7 @@ class Converters {
 
     @TypeConverter fun statusToString(value: AssignmentStatus): String = value.name
     @TypeConverter fun statusFromString(value: String): AssignmentStatus = AssignmentStatus.valueOf(value)
+
+    @TypeConverter fun roleToString(value: HouseholdRole): String = value.name
+    @TypeConverter fun roleFromString(value: String): HouseholdRole = HouseholdRole.valueOf(value)
 }
