@@ -49,12 +49,13 @@ See "Package Structure" below for the full current tree.
 - Run the most specific available checks after changes.
 - If no build or test command exists yet, state that clearly when reporting work.
 - Do not invent project requirements before the user provides more context.
+- Gradle checks used in this repo: `./gradlew :app:compileDebugKotlin` (fast syntax/type check), `./gradlew :app:assembleDebug` (full build, also runs KSP/Room annotation processing), `./gradlew :app:testDebugUnitTest` (JVM unit tests). Requires `local.properties` with a valid `sdk.dir` — not checked into git, so a fresh worktree needs its own copy (e.g. copied from the main checkout).
 
 ---
 
 ## App Overview
 
-**HouseFlow** is a roommate chore-tracking Android app that fairly assigns household chores based on each roommate's availability, plus a house bulletin board for announcements/events. Users can create or join multiple households and switch between them. Data persists on-device via Room (SQLite); authentication is real Firebase Auth (email/password). See `HANDOFF_auth_persistence.md` for the migration writeup.
+**HouseFlow** is a roommate chore-tracking Android app that fairly assigns household chores based on each roommate's availability, plus a house bulletin board for announcements/events. Users can create or join multiple households and switch between them, with a Creator/Admin/Member role hierarchy governing who can author chores. Data persists on-device via Room (SQLite); authentication is real Firebase Auth (email/password).
 
 ---
 
@@ -69,6 +70,8 @@ See "Package Structure" below for the full current tree.
 | Persistence | Room `2.7.1` (`room-runtime`, `room-ktx`, `room-compiler` via KSP) — on-device SQLite |
 | Build | AGP 9.2.1, Gradle 9.4.1, KSP `2.2.10-2.0.2`, Google Services plugin `4.5.0` |
 | Min SDK | 24 · Target/Compile SDK 36 |
+
+The project uses **AGP 9's built-in Kotlin support** — there is no separate `kotlin.android` plugin. KSP (needed for Room's annotation processing) only works because of `android.disallowKotlinSourceSets=false` in `gradle.properties`; don't remove that flag. Keep the KSP version's Kotlin prefix (`2.2.10-...`) matched to the actual Kotlin version if either is bumped.
 
 ---
 
@@ -244,6 +247,8 @@ Iterates chores and scores every roommate for each one. The accumulating `newAss
 
 `hasConflict = true` when the winner still has a busy-block conflict (best available despite it). A human-readable `reason` string is generated and stored on every `ChoreAssignment`.
 
+`AssignmentAlgorithm.assignAll()` has no callers anywhere in the app — `AppViewModel.runAssignmentsInternal()` calls `assignOne()` per slot directly instead. Dead code, safe to delete.
+
 ---
 
 ## Roles & Permissions
@@ -309,9 +314,15 @@ Seeding is now a one-time `RoomDatabase.Callback.onCreate` step, not code baked 
 
 ---
 
+## On-Device Database
+
+SQLite file at `/data/data/com.example.houseflow/databases/houseflow.db` (private internal storage; runs in WAL mode, so `-wal`/`-shm` sidecar files also exist). Persists across app launches and updates; wiped by uninstall or Settings → Apps → HouseFlow → **Clear storage** (which re-triggers the first-run seed on next launch, since Room's `onCreate` callback fires again on a fresh DB file). Inspect it via Android Studio's **Database Inspector**, or `adb shell run-as com.example.houseflow` on a debug build.
+
+---
+
 ## Migration Seams
 
-The persistence and auth migrations described in earlier versions of this doc are **done** — see `HANDOFF_auth_persistence.md` for the writeup. Only one `// Migration seam:` comment remains in source, on `data/repository/AuthRepository.kt`: swap `FirebaseAuthRepository` for a fake/test double or another auth provider without touching the ViewModel.
+The persistence and auth migrations that took this app from an in-memory demo to real Firebase Auth + Room are **done**. Only one `// Migration seam:` comment remains in source, on `data/repository/AuthRepository.kt`: swap `FirebaseAuthRepository` for a fake/test double or another auth provider without touching the ViewModel.
 
 Penalty weights for the assignment algorithm are still plain constants in `AssignmentAlgorithm.score()` if they need tuning.
 
