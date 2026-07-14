@@ -84,7 +84,7 @@ private fun typeColor(type: BlockType): Color = when (type) {
 @Composable
 fun RoommateAvailabilityScreen(vm: AppViewModel) {
     val roommates by vm.roommates.collectAsState()
-    val blocksByRoommate by vm.householdBusyBlocks.collectAsState()
+    val myBusyBlocks by vm.myBusyBlocks.collectAsState()
     val assignments by vm.assignments.collectAsState()
     val chores by vm.chores.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
@@ -128,14 +128,15 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
 
     // Popup card when a roommate is tapped
     selectedRoommate?.let { roommate ->
-        val blocks = blocksByRoommate[roommate.userId] ?: emptyList()
+        val isMe = roommate.userId == currentUser?.uid
         val roommateAssignments = assignments.filter {
             it.assignedToRoommateId == roommate.userId && it.weekStart == vm.weekStart
         }
 
         RoommateProfileDialog(
             roommate = roommate,
-            blocks = blocks,
+            blocks = if (isMe) myBusyBlocks else emptyList(),
+            showSchedule = isMe,
             completedCount = completionCounts[roommate.userId] ?: 0,
             assignedChoreNames = roommateAssignments.mapNotNull { a ->
                 val chore = chores.find { it.id == a.choreId }
@@ -283,6 +284,7 @@ private fun RoleBadge(role: HouseholdRole) {
 private fun RoommateProfileDialog(
     roommate: Roommate,
     blocks: List<BusyBlock>,
+    showSchedule: Boolean,
     completedCount: Int,
     assignedChoreNames: List<String>,
     onDismiss: () -> Unit
@@ -310,29 +312,28 @@ private fun RoommateProfileDialog(
         },
         text = {
             Column {
-                // Schedule section
-                Text(
-                    "Schedule",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(8.dp))
-
-                if (blocks.isEmpty()) {
+                if (showSchedule) {
                     Text(
-                        "Fully available — no busy blocks.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        "Schedule",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
                     )
-                } else {
-                    // Compact mini calendar grid
-                    MiniWeeklyGrid(blocks)
-                    Spacer(Modifier.height(4.dp))
-                    // Legend
-                    MiniTypeLegend()
-                }
+                    Spacer(Modifier.height(8.dp))
 
-                Spacer(Modifier.height(16.dp))
+                    if (blocks.isEmpty()) {
+                        Text(
+                            "Fully available — no busy blocks.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        MiniWeeklyGrid(blocks)
+                        Spacer(Modifier.height(4.dp))
+                        MiniTypeLegend()
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                }
 
                 // Completion count section
                 Text(
