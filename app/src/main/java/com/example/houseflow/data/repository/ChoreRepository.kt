@@ -14,4 +14,5 @@ interface ChoreRepository {
     suspend fun addAssignment(assignment: ChoreAssignment)
     suspend fun updateAssignment(assignment: ChoreAssignment)
     suspend fun updateAssignmentStatus(assignmentId: String, status: AssignmentStatus)
+    suspend fun getCompletedCount(userId: String): Int
 }

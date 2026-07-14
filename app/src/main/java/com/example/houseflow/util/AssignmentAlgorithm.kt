@@ -80,6 +80,13 @@ object AssignmentAlgorithm {
         }
         points -= recentCount * 10
 
+        // Completion bonus: +3 per recently completed assignment — rewards
+        // roommates who actually finish their chores (fairness signal).
+        val recentCompleted = history.count {
+            it.assignedToRoommateId == roommate.userId && it.weekStart >= twoWeeksAgo && it.status == AssignmentStatus.COMPLETED
+        }
+        points += recentCompleted * 3
+
         // Weekly workload penalty: -5 per chore already assigned this week
         val thisWeekCount = history.count {
             it.assignedToRoommateId == roommate.userId && it.weekStart == weekStart
