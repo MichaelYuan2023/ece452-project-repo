@@ -70,10 +70,6 @@ class AppViewModel(
     private val _myBusyBlocks = MutableStateFlow<List<BusyBlock>>(emptyList())
     val myBusyBlocks: StateFlow<List<BusyBlock>> = _myBusyBlocks.asStateFlow()
 
-    // Busy blocks for every roommate in the household, keyed by userId.
-    private val _householdBusyBlocks = MutableStateFlow<Map<String, List<BusyBlock>>>(emptyMap())
-    val householdBusyBlocks: StateFlow<Map<String, List<BusyBlock>>> = _householdBusyBlocks.asStateFlow()
-
     private val _chores = MutableStateFlow<List<Chore>>(emptyList())
     val chores: StateFlow<List<Chore>> = _chores.asStateFlow()
 
@@ -190,7 +186,6 @@ class AppViewModel(
         removeMockedScheduleBlocks(household.id)
         _roommates.value = syncOwnRoommateDisplayName(household)
         refreshMyBlocks()
-        refreshHouseholdBlocks()
         refreshChores()
         refreshAssignments()
         _bulletinPosts.value = bulletinRepo.getPosts(household.id)
@@ -217,7 +212,6 @@ class AppViewModel(
         _showHouseholdSwitcher.value = false
         _roommates.value = emptyList()
         _myBusyBlocks.value = emptyList()
-        _householdBusyBlocks.value = emptyMap()
         _chores.value = emptyList()
         _assignments.value = emptyList()
         _assignmentsRun.value = false
@@ -333,26 +327,15 @@ class AppViewModel(
     fun addBusyBlock(block: BusyBlock) = viewModelScope.launch {
         householdRepo.addBusyBlock(block)
         refreshMyBlocks()
-        refreshHouseholdBlocks()
     }
 
     fun deleteBusyBlock(blockId: String) = viewModelScope.launch {
         householdRepo.deleteBusyBlock(blockId)
         refreshMyBlocks()
-        refreshHouseholdBlocks()
     }
 
     private suspend fun refreshMyBlocks() {
         _myBusyBlocks.value = householdRepo.getBusyBlocks(_currentUser.value?.uid ?: return)
-    }
-
-    private suspend fun refreshHouseholdBlocks() {
-        val householdId = _household.value?.id ?: return
-        val map = mutableMapOf<String, List<BusyBlock>>()
-        for (roommate in householdRepo.getRoommates(householdId)) {
-            map[roommate.userId] = householdRepo.getBusyBlocks(roommate.userId)
-        }
-        _householdBusyBlocks.value = map
     }
 
     // --- Chores ---
