@@ -37,7 +37,7 @@ object AppContainer {
         val db = HouseflowDatabase.get(context, seedScope)
         userRepository = RoomUserRepository(db.userDao())
         householdRepository = RoomHouseholdRepository(db.householdDao(), db.membershipDao(), db.busyBlockDao())
-        choreRepository = RoomChoreRepository(db.choreDao(), db.assignmentDao())
+        choreRepository = RoomChoreRepository(db.choreDao(), db.assignmentDao(), db.tradeRequestDao())
         bulletinRepository = RoomBulletinRepository(db.bulletinDao())
     }
 }

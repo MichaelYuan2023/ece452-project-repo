@@ -20,6 +20,8 @@ import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.TradeRequest
+import com.example.houseflow.model.TradeStatus
 import com.example.houseflow.model.User
 import com.example.houseflow.util.AssignmentAlgorithm
 import com.google.firebase.auth.FirebaseUser
@@ -82,6 +84,9 @@ class AppViewModel(
 
     private val _bulletinPosts = MutableStateFlow<List<BulletinPost>>(emptyList())
     val bulletinPosts: StateFlow<List<BulletinPost>> = _bulletinPosts.asStateFlow()
+
+    private val _tradeRequests = MutableStateFlow<List<TradeRequest>>(emptyList())
+    val tradeRequests: StateFlow<List<TradeRequest>> = _tradeRequests.asStateFlow()
 
     // All-time completed chore count per roommate, keyed by userId. Consumed by
     // the roommate UI and available to the HF-8 recommendation engine.
@@ -189,6 +194,7 @@ class AppViewModel(
         refreshChores()
         refreshAssignments()
         _bulletinPosts.value = bulletinRepo.getPosts(household.id)
+        _tradeRequests.value = choreRepo.getTradeRequests(household.id)
         _assignmentsRun.value = _assignments.value.any { it.weekStart == weekStart }
     }
 
@@ -216,6 +222,7 @@ class AppViewModel(
         _assignments.value = emptyList()
         _assignmentsRun.value = false
         _bulletinPosts.value = emptyList()
+        _tradeRequests.value = emptyList()
         _completionCounts.value = emptyMap()
     }
 
@@ -365,6 +372,7 @@ class AppViewModel(
         choreRepo.deleteChore(choreId)
         refreshChores()
         refreshAssignments()
+        refreshTradeRequests()
     }
 
     fun runAssignments() = viewModelScope.launch { runAssignmentsInternal() }
@@ -485,6 +493,82 @@ class AppViewModel(
             )
         )
         refreshAssignments()
+    }
+
+    // --- Trades ---
+
+    // Owner of a claimed (PENDING) assignment asks a specific roommate to take
+    // it over. One pending request per assignment; cancel to re-send.
+    fun requestTrade(assignmentId: String, toUserId: String, reason: String) = viewModelScope.launch {
+        val me = _currentUser.value?.uid ?: return@launch
+        val householdId = _household.value?.id ?: return@launch
+        if (toUserId == me) return@launch
+        val a = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
+        if (a.status != AssignmentStatus.PENDING || a.assignedToRoommateId != me) return@launch
+        val existing = choreRepo.getTradeRequests(householdId)
+        if (existing.any { it.assignmentId == assignmentId && it.status == TradeStatus.PENDING }) return@launch
+
+        choreRepo.addTradeRequest(
+            TradeRequest(
+                id = UUID.randomUUID().toString(),
+                assignmentId = assignmentId,
+                householdId = householdId,
+                fromUserId = me,
+                toUserId = toUserId,
+                reason = reason.trim(),
+                status = TradeStatus.PENDING,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+        refreshTradeRequests()
+    }
+
+    fun cancelTradeRequest(requestId: String) = viewModelScope.launch {
+        val me = _currentUser.value?.uid ?: return@launch
+        val request = _tradeRequests.value.find { it.id == requestId } ?: return@launch
+        if (request.fromUserId != me || request.status != TradeStatus.PENDING) return@launch
+        choreRepo.deleteTradeRequest(requestId)
+        refreshTradeRequests()
+    }
+
+    fun respondToTrade(requestId: String, accept: Boolean) = viewModelScope.launch {
+        val me = _currentUser.value?.uid ?: return@launch
+        val householdId = _household.value?.id ?: return@launch
+        val request = choreRepo.getTradeRequests(householdId).find { it.id == requestId } ?: return@launch
+        if (request.toUserId != me || request.status != TradeStatus.PENDING) return@launch
+
+        val a = choreRepo.getAssignments(householdId).find { it.id == request.assignmentId }
+        // Stale request: the assignment was completed, missed, or re-routed
+        // since it was sent — drop it instead of transferring.
+        if (a == null || a.status != AssignmentStatus.PENDING || a.assignedToRoommateId != request.fromUserId) {
+            choreRepo.deleteTradeRequest(requestId)
+            refreshTradeRequests()
+            return@launch
+        }
+
+        val resolved = choreRepo.resolveTradeRequest(
+            requestId,
+            if (accept) TradeStatus.ACCEPTED else TradeStatus.DENIED
+        )
+        if (resolved && accept) {
+            val chore = _chores.value.find { it.id == a.choreId }
+            val hasConflict = chore != null &&
+                AssignmentAlgorithm.isBusyAt(householdRepo.getBusyBlocks(me), chore.dueDayOfWeek, chore.dueHour)
+            val fromName = _roommates.value.find { it.userId == request.fromUserId }?.displayName ?: "a roommate"
+            choreRepo.updateAssignment(
+                a.copy(
+                    assignedToRoommateId = me,
+                    reason = "Traded from $fromName: ${request.reason}",
+                    hasConflict = hasConflict
+                )
+            )
+            refreshAssignments()
+        }
+        refreshTradeRequests()
+    }
+
+    private suspend fun refreshTradeRequests() {
+        _tradeRequests.value = choreRepo.getTradeRequests(_household.value?.id ?: return)
     }
 
     // --- Bulletin ---

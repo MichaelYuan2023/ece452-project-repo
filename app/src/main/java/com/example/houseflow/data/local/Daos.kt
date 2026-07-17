@@ -12,6 +12,8 @@ import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.TradeRequest
+import com.example.houseflow.model.TradeStatus
 import com.example.houseflow.model.User
 
 @Dao
@@ -105,6 +107,26 @@ interface AssignmentDao {
 
     @Query("DELETE FROM assignments WHERE status = 'AVAILABLE' AND weekStart < :cutoff")
     suspend fun deleteStaleAvailable(cutoff: Long)
+}
+
+@Dao
+interface TradeRequestDao {
+    @Query("SELECT * FROM trade_requests WHERE householdId = :householdId")
+    suspend fun getForHousehold(householdId: String): List<TradeRequest>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(request: TradeRequest)
+
+    // Conditional so concurrent accept/deny taps can't both resolve — the
+    // first write wins and the loser sees 0 rows updated.
+    @Query("UPDATE trade_requests SET status = :status WHERE id = :requestId AND status = 'PENDING'")
+    suspend fun resolve(requestId: String, status: TradeStatus): Int
+
+    @Query("DELETE FROM trade_requests WHERE id = :requestId")
+    suspend fun delete(requestId: String)
+
+    @Query("DELETE FROM trade_requests WHERE assignmentId IN (SELECT id FROM assignments WHERE choreId = :choreId)")
+    suspend fun deleteForChore(choreId: String)
 }
 
 @Dao

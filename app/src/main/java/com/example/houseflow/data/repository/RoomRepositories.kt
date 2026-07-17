@@ -6,6 +6,7 @@ import com.example.houseflow.data.local.BusyBlockDao
 import com.example.houseflow.data.local.ChoreDao
 import com.example.houseflow.data.local.HouseholdDao
 import com.example.houseflow.data.local.MembershipDao
+import com.example.houseflow.data.local.TradeRequestDao
 import com.example.houseflow.data.local.UserDao
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.BulletinPost
@@ -15,6 +16,8 @@ import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.HouseholdRole
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.TradeRequest
+import com.example.houseflow.model.TradeStatus
 import java.util.UUID
 import kotlin.random.Random
 
@@ -94,6 +97,7 @@ private fun generateInviteCode(): String =
 class RoomChoreRepository(
     private val choreDao: ChoreDao,
     private val assignmentDao: AssignmentDao,
+    private val tradeRequestDao: TradeRequestDao,
 ) : ChoreRepository {
 
     override suspend fun getChores(householdId: String): List<Chore> =
@@ -105,6 +109,9 @@ class RoomChoreRepository(
 
     override suspend fun deleteChore(choreId: String) {
         choreDao.delete(choreId)
+        // Before the assignments go away — the subquery resolving this chore's
+        // trade requests reads them.
+        tradeRequestDao.deleteForChore(choreId)
         assignmentDao.deleteForChore(choreId)
     }
 
@@ -121,6 +128,16 @@ class RoomChoreRepository(
     override suspend fun getCompletedCount(userId: String): Int = assignmentDao.countCompleted(userId)
 
     override suspend fun deleteStaleAvailable(cutoff: Long) = assignmentDao.deleteStaleAvailable(cutoff)
+
+    override suspend fun getTradeRequests(householdId: String): List<TradeRequest> =
+        tradeRequestDao.getForHousehold(householdId)
+
+    override suspend fun addTradeRequest(request: TradeRequest) = tradeRequestDao.insert(request)
+
+    override suspend fun resolveTradeRequest(requestId: String, status: TradeStatus): Boolean =
+        tradeRequestDao.resolve(requestId, status) > 0
+
+    override suspend fun deleteTradeRequest(requestId: String) = tradeRequestDao.delete(requestId)
 }
 
 class RoomBulletinRepository(private val bulletinDao: BulletinDao) : BulletinRepository {
