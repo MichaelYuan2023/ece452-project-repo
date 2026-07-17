@@ -12,6 +12,7 @@ import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.TradeRequest
 import com.example.houseflow.model.User
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -25,8 +26,9 @@ import kotlinx.coroutines.launch
         Chore::class,
         ChoreAssignment::class,
         BulletinPost::class,
+        TradeRequest::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -38,6 +40,7 @@ abstract class HouseflowDatabase : RoomDatabase() {
     abstract fun choreDao(): ChoreDao
     abstract fun assignmentDao(): AssignmentDao
     abstract fun bulletinDao(): BulletinDao
+    abstract fun tradeRequestDao(): TradeRequestDao
 
     companion object {
         @Volatile

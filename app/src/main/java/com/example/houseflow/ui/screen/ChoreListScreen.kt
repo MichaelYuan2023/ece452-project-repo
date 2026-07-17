@@ -26,6 +26,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -50,6 +51,7 @@ import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreFrequency
 import com.example.houseflow.model.HouseholdRole
+import com.example.houseflow.model.TradeStatus
 import com.example.houseflow.ui.viewmodel.AppViewModel
 import java.util.UUID
 
@@ -75,8 +77,10 @@ fun ChoreListScreen(vm: AppViewModel) {
     val assignmentsRun by vm.assignmentsRun.collectAsState()
     val currentUserRole by vm.currentUserRole.collectAsState()
     val canManageChores = currentUserRole == HouseholdRole.CREATOR || currentUserRole == HouseholdRole.ADMIN
+    val tradeRequests by vm.tradeRequests.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
     var editingChore by remember { mutableStateOf<Chore?>(null) }
+    var tradingAssignmentId by remember { mutableStateOf<String?>(null) }
 
     // Current user's assignments this week
     val myAssignments = assignments.filter {
@@ -87,6 +91,8 @@ fun ChoreListScreen(vm: AppViewModel) {
     // Unclaimed chores anyone can pick up (no weekStart filter: daily/every-N
     // slots and next-occurrence posts have mid-week or future weekStarts)
     val openChores = assignments.filter { it.status == AssignmentStatus.AVAILABLE }
+    val pendingTrades = tradeRequests.filter { it.status == TradeStatus.PENDING }
+    val incomingTrades = pendingTrades.filter { it.toUserId == currentUser?.uid }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Chores") }) },
@@ -146,6 +152,34 @@ fun ChoreListScreen(vm: AppViewModel) {
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Trade requests sent to me
+                    if (incomingTrades.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Incoming Trade Requests",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        items(incomingTrades, key = { it.id }) { request ->
+                            val assignment = assignments.find { it.id == request.assignmentId }
+                            val chore = chores.find { it.id == assignment?.choreId }
+                            TradeRequestCard(
+                                choreName = chore?.name ?: "Unknown",
+                                dueDay = chore?.dueDayOfWeek?.let { DAYS[it] } ?: "",
+                                dueHour = chore?.dueHour ?: 0,
+                                fromName = roommates
+                                    .find { it.userId == request.fromUserId }
+                                    ?.displayName ?: "?",
+                                reason = request.reason,
+                                onAccept = { vm.respondToTrade(request.id, accept = true) },
+                                onDeny = { vm.respondToTrade(request.id, accept = false) }
+                            )
+                        }
+                        item { Spacer(Modifier.height(8.dp)) }
+                    }
+
                     // Unclaimed chores anyone can pick up
                     if (openChores.isNotEmpty()) {
                         item {
@@ -185,6 +219,9 @@ fun ChoreListScreen(vm: AppViewModel) {
                         }
                         items(myAssignments, key = { it.id }) { assignment ->
                             val chore = chores.find { it.id == assignment.choreId }
+                            val outgoingTrade = pendingTrades.find {
+                                it.assignmentId == assignment.id && it.fromUserId == currentUser?.uid
+                            }
                             MyAssignmentCard(
                                 choreName = chore?.name ?: "Unknown",
                                 dueDay = chore?.dueDayOfWeek?.let { DAYS[it] } ?: "",
@@ -192,7 +229,12 @@ fun ChoreListScreen(vm: AppViewModel) {
                                 reason = assignment.reason,
                                 status = assignment.status,
                                 hasConflict = assignment.hasConflict,
-                                onMarkComplete = { vm.markComplete(assignment.id) }
+                                pendingTradeToName = outgoingTrade?.let { t ->
+                                    roommates.find { it.userId == t.toUserId }?.displayName ?: "?"
+                                },
+                                onMarkComplete = { vm.markComplete(assignment.id) },
+                                onTrade = { tradingAssignmentId = assignment.id },
+                                onCancelTrade = { outgoingTrade?.let { vm.cancelTradeRequest(it.id) } }
                             )
                         }
                         item { Spacer(Modifier.height(8.dp)) }
@@ -247,6 +289,18 @@ fun ChoreListScreen(vm: AppViewModel) {
             )
         }
 
+        tradingAssignmentId?.let { assignmentId ->
+            val others = roommates.filter { it.userId != currentUser?.uid }
+            TradeRequestDialog(
+                roommateNames = others.map { it.displayName },
+                onDismiss = { tradingAssignmentId = null },
+                onConfirm = { index, reason ->
+                    vm.requestTrade(assignmentId, others[index].userId, reason)
+                    tradingAssignmentId = null
+                }
+            )
+        }
+
         editingChore?.let { chore ->
             CreateChoreDialog(
                 householdId = chore.householdId,
@@ -270,7 +324,10 @@ private fun MyAssignmentCard(
     reason: String,
     status: AssignmentStatus,
     hasConflict: Boolean,
-    onMarkComplete: () -> Unit
+    pendingTradeToName: String?,
+    onMarkComplete: () -> Unit,
+    onTrade: () -> Unit,
+    onCancelTrade: () -> Unit
 ) {
     val containerColor = when {
         status == AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.secondaryContainer
@@ -338,12 +395,43 @@ private fun MyAssignmentCard(
 
             if (status == AssignmentStatus.PENDING) {
                 Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = onMarkComplete,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Text("Complete")
+                if (pendingTradeToName != null) {
+                    Button(
+                        onClick = onMarkComplete,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text("Complete")
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Trade pending → $pendingTradeToName",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        TextButton(onClick = onCancelTrade) { Text("Cancel") }
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onMarkComplete,
+                            modifier = Modifier.weight(1f),
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Text("Complete")
+                        }
+                        OutlinedButton(
+                            onClick = onTrade,
+                            modifier = Modifier.weight(1f),
+                            shape = MaterialTheme.shapes.small
+                        ) {
+                            Text("Trade")
+                        }
+                    }
                 }
             }
         }
@@ -410,6 +498,116 @@ private fun OpenChoreCard(
             }
         }
     }
+}
+
+@Composable
+private fun TradeRequestCard(
+    choreName: String,
+    dueDay: String,
+    dueHour: Int,
+    fromName: String,
+    reason: String,
+    onAccept: () -> Unit,
+    onDeny: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(choreName, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Due: $dueDay at ${"%02d:00".format(dueHour)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.tertiary
+                ) {
+                    Text(
+                        "From: $fromName",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            if (reason.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "\"$reason\"",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onAccept,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text("Accept")
+                }
+                OutlinedButton(
+                    onClick = onDeny,
+                    modifier = Modifier.weight(1f),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text("Deny")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TradeRequestDialog(
+    roommateNames: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (roommateIndex: Int, reason: String) -> Unit
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    var reason by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Request Trade") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (roommateNames.isEmpty()) {
+                    Text("No other roommates to trade with.")
+                } else {
+                    SimpleDropdown("Trade with", roommateNames, selectedIndex) { selectedIndex = it }
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        label = { Text("Reason") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(selectedIndex, reason) },
+                enabled = roommateNames.isNotEmpty() && reason.isNotBlank()
+            ) { Text("Send") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable
