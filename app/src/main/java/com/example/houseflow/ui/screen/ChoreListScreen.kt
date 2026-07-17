@@ -26,7 +26,6 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -81,8 +80,13 @@ fun ChoreListScreen(vm: AppViewModel) {
 
     // Current user's assignments this week
     val myAssignments = assignments.filter {
-        it.assignedToRoommateId == currentUser?.uid && it.weekStart == vm.weekStart
+        it.assignedToRoommateId == currentUser?.uid &&
+            it.weekStart >= vm.weekStart &&
+            it.status != AssignmentStatus.AVAILABLE
     }
+    // Unclaimed chores anyone can pick up (no weekStart filter: daily/every-N
+    // slots and next-occurrence posts have mid-week or future weekStarts)
+    val openChores = assignments.filter { it.status == AssignmentStatus.AVAILABLE }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Chores") }) },
@@ -128,7 +132,7 @@ fun ChoreListScreen(vm: AppViewModel) {
                 shape = MaterialTheme.shapes.small,
                 enabled = chores.isNotEmpty() && !assignmentsRun
             ) {
-                Text(if (assignmentsRun) "Assignments done for this week ✓" else "Run Fair Assignment")
+                Text(if (assignmentsRun) "Chores posted for this week ✓" else "Post Chores for Pickup")
             }
 
             Spacer(Modifier.height(16.dp))
@@ -142,7 +146,34 @@ fun ChoreListScreen(vm: AppViewModel) {
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // My assignments section (shown after running)
+                    // Unclaimed chores anyone can pick up
+                    if (openChores.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Open for Pickup",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
+                        items(openChores, key = { it.id }) { assignment ->
+                            val chore = chores.find { it.id == assignment.choreId }
+                            OpenChoreCard(
+                                choreName = chore?.name ?: "Unknown",
+                                dueDay = chore?.dueDayOfWeek?.let { DAYS[it] } ?: "",
+                                dueHour = chore?.dueHour ?: 0,
+                                reason = assignment.reason,
+                                recommendedName = roommates
+                                    .find { it.userId == assignment.assignedToRoommateId }
+                                    ?.displayName ?: "?",
+                                isRecommendedMe = assignment.assignedToRoommateId == currentUser?.uid,
+                                onPickUp = { vm.claimAssignment(assignment.id) }
+                            )
+                        }
+                        item { Spacer(Modifier.height(8.dp)) }
+                    }
+
+                    // My assignments section
                     if (myAssignments.isNotEmpty()) {
                         item {
                             Text(
@@ -161,12 +192,14 @@ fun ChoreListScreen(vm: AppViewModel) {
                                 reason = assignment.reason,
                                 status = assignment.status,
                                 hasConflict = assignment.hasConflict,
-                                onMarkComplete = { vm.markComplete(assignment.id) },
-                                onSwap = { vm.swapAssignment(assignment.id) }
+                                onMarkComplete = { vm.markComplete(assignment.id) }
                             )
                         }
+                        item { Spacer(Modifier.height(8.dp)) }
+                    }
+
+                    if (openChores.isNotEmpty() || myAssignments.isNotEmpty()) {
                         item {
-                            Spacer(Modifier.height(16.dp))
                             Text(
                                 "All Household Chores",
                                 style = MaterialTheme.typography.titleSmall,
@@ -182,7 +215,11 @@ fun ChoreListScreen(vm: AppViewModel) {
                             it.choreId == chore.id && it.status == AssignmentStatus.COMPLETED
                         }
                         val assignedTo = assignments
-                            .find { it.choreId == chore.id && it.weekStart == vm.weekStart }
+                            .find {
+                                it.choreId == chore.id &&
+                                    it.weekStart >= vm.weekStart &&
+                                    it.status != AssignmentStatus.AVAILABLE
+                            }
                             ?.let { a -> roommates.find { it.userId == a.assignedToRoommateId }?.displayName }
 
                         ChoreRow(
@@ -233,8 +270,7 @@ private fun MyAssignmentCard(
     reason: String,
     status: AssignmentStatus,
     hasConflict: Boolean,
-    onMarkComplete: () -> Unit,
-    onSwap: () -> Unit
+    onMarkComplete: () -> Unit
 ) {
     val containerColor = when {
         status == AssignmentStatus.COMPLETED -> MaterialTheme.colorScheme.secondaryContainer
@@ -261,6 +297,7 @@ private fun MyAssignmentCard(
                     )
                 }
                 val statusLabel = when (status) {
+                    AssignmentStatus.AVAILABLE -> "Open"
                     AssignmentStatus.PENDING -> "Pending"
                     AssignmentStatus.COMPLETED -> "Done ✓"
                     AssignmentStatus.MISSED -> "Missed"
@@ -301,22 +338,75 @@ private fun MyAssignmentCard(
 
             if (status == AssignmentStatus.PENDING) {
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onMarkComplete,
-                        modifier = Modifier.weight(1f),
-                        shape = MaterialTheme.shapes.small
-                    ) {
-                        Text("Complete")
-                    }
-                    OutlinedButton(
-                        onClick = onSwap,
-                        modifier = Modifier.weight(1f),
-                        shape = MaterialTheme.shapes.small
-                    ) {
-                        Text("Swap")
-                    }
+                Button(
+                    onClick = onMarkComplete,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text("Complete")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OpenChoreCard(
+    choreName: String,
+    dueDay: String,
+    dueHour: Int,
+    reason: String,
+    recommendedName: String,
+    isRecommendedMe: Boolean,
+    onPickUp: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(choreName, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "Due: $dueDay at ${"%02d:00".format(dueHour)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Text(
+                        if (isRecommendedMe) "Recommended: You" else "Recommended: $recommendedName",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = if (isRecommendedMe) FontWeight.Bold else FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Text(
+                reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onPickUp,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text("Pick up")
             }
         }
     }
