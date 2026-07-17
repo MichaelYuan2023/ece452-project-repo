@@ -9,34 +9,16 @@ import java.util.UUID
 
 object AssignmentAlgorithm {
 
-    fun assignAll(
-        chores: List<Chore>,
-        roommates: List<Roommate>,
-        busyBlocksByRoommate: Map<String, List<BusyBlock>>,
-        history: List<ChoreAssignment>,
-        weekStart: Long
-    ): List<ChoreAssignment> {
-        // Build up a running list of new assignments so workload penalties apply
-        // even within a single run (e.g. if two chores get assigned to the same person).
-        val newAssignments = mutableListOf<ChoreAssignment>()
-
-        for (chore in chores) {
-            val allHistory = history + newAssignments
-            val assignment = assignOne(chore, roommates, busyBlocksByRoommate, allHistory, weekStart)
-            newAssignments.add(assignment)
-        }
-        return newAssignments
-    }
-
     fun assignOne(
         chore: Chore,
         roommates: List<Roommate>,
         busyBlocksByRoommate: Map<String, List<BusyBlock>>,
         history: List<ChoreAssignment>,
-        weekStart: Long
+        weekStart: Long,
+        effortByChoreId: Map<String, Int>
     ): ChoreAssignment {
         val scores = roommates.associateWith { r ->
-            score(r, chore, busyBlocksByRoommate[r.userId] ?: emptyList(), history, weekStart)
+            score(r, chore, busyBlocksByRoommate[r.userId] ?: emptyList(), history, weekStart, effortByChoreId)
         }
         val best = scores.maxByOrNull { it.value }!!
         val winner = best.key
@@ -51,7 +33,7 @@ object AssignmentAlgorithm {
             householdId = chore.householdId,
             assignedToRoommateId = winner.userId,
             weekStart = weekStart,
-            status = AssignmentStatus.PENDING,
+            status = AssignmentStatus.AVAILABLE,
             reason = reason,
             hasConflict = isBusy
         )
@@ -66,7 +48,8 @@ object AssignmentAlgorithm {
         chore: Chore,
         blocks: List<BusyBlock>,
         history: List<ChoreAssignment>,
-        weekStart: Long
+        weekStart: Long,
+        effortByChoreId: Map<String, Int>
     ): Int {
         var points = 100
 
@@ -87,11 +70,11 @@ object AssignmentAlgorithm {
         }
         points += recentCompleted * 3
 
-        // Weekly workload penalty: -5 per chore already assigned this week
-        val thisWeekCount = history.count {
-            it.assignedToRoommateId == roommate.userId && it.weekStart == weekStart
-        }
-        points -= thisWeekCount * 5
+        // Weekly workload penalty: -5 per effort point already on their plate this week
+        val thisWeekEffort = history
+            .filter { it.assignedToRoommateId == roommate.userId && it.weekStart == weekStart }
+            .sumOf { effortByChoreId[it.choreId] ?: 1 }
+        points -= thisWeekEffort * 5
 
         // Repeated chore penalty: -15 if they had this exact chore last week
         val lastWeek = weekStart - 7L * 24 * 3600 * 1000
@@ -106,7 +89,7 @@ object AssignmentAlgorithm {
     }
 
     // True if the given hour falls inside any of the roommate's busy blocks on that day.
-    private fun isBusyAt(blocks: List<BusyBlock>, dayOfWeek: Int, hour: Int): Boolean =
+    fun isBusyAt(blocks: List<BusyBlock>, dayOfWeek: Int, hour: Int): Boolean =
         blocks.any { it.dayOfWeek == dayOfWeek && hour >= it.startHour && hour < it.endHour }
 
     private val DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -125,9 +108,9 @@ object AssignmentAlgorithm {
             it.assignedToRoommateId == winner.userId && it.weekStart == weekStart
         }
         return when {
-            isBusy -> "Assigned to ${winner.displayName} — conflict: busy $day $time, but fewest tasks this week"
-            thisWeekCount == 0 -> "Assigned to ${winner.displayName} — free $day $time, no other chores this week"
-            else -> "Assigned to ${winner.displayName} — free $day $time, lightest workload ($thisWeekCount chore(s) this week)"
+            isBusy -> "Recommended for ${winner.displayName} — conflict: busy $day $time, but fewest tasks this week"
+            thisWeekCount == 0 -> "Recommended for ${winner.displayName} — free $day $time, no other chores this week"
+            else -> "Recommended for ${winner.displayName} — free $day $time, lightest workload ($thisWeekCount chore(s) this week)"
         }
     }
 }

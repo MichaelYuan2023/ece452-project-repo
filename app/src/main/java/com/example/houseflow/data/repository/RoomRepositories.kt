@@ -119,6 +119,8 @@ class RoomChoreRepository(
         assignmentDao.updateStatus(assignmentId, status)
 
     override suspend fun getCompletedCount(userId: String): Int = assignmentDao.countCompleted(userId)
+
+    override suspend fun deleteStaleAvailable(cutoff: Long) = assignmentDao.deleteStaleAvailable(cutoff)
 }
 
 class RoomBulletinRepository(private val bulletinDao: BulletinDao) : BulletinRepository {

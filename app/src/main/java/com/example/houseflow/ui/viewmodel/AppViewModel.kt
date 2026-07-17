@@ -342,7 +342,7 @@ class AppViewModel(
 
     // Chore authoring (create/edit/delete) is restricted to CREATOR and ADMIN.
     // Enforced here independent of the UI, so a MEMBER invoking these directly
-    // is a no-op. Assignment status changes (markComplete, swapAssignment,
+    // is a no-op. Assignment status changes (markComplete, claimAssignment,
     // runAssignments) are unrelated to authoring and are not gated.
     private fun canManageChores(): Boolean =
         currentUserRole.value == HouseholdRole.CREATOR || currentUserRole.value == HouseholdRole.ADMIN
@@ -419,11 +419,12 @@ class AppViewModel(
             }
         }
 
+        val effortByChoreId = chores.associate { it.id to it.effortScore }
         val newAssignments = mutableListOf<ChoreAssignment>()
         for ((chore, dueDate) in slots) {
             val allHistory = history + newAssignments
             val assignment = AssignmentAlgorithm.assignOne(
-                chore, roommates, busyBlocksByRoommate, allHistory, dueDate
+                chore, roommates, busyBlocksByRoommate, allHistory, dueDate, effortByChoreId
             )
             newAssignments.add(assignment)
         }
@@ -436,6 +437,7 @@ class AppViewModel(
     fun markComplete(assignmentId: String) = viewModelScope.launch {
         val householdId = _household.value?.id ?: return@launch
         val completed = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
+        if (completed.status != AssignmentStatus.PENDING) return@launch
         choreRepo.updateAssignmentStatus(assignmentId, AssignmentStatus.COMPLETED)
         userRepo.incrementCompletedCount(completed.assignedToRoommateId)
 
@@ -453,27 +455,35 @@ class AppViewModel(
             if (!alreadyScheduled) {
                 val busyByRoommate = mutableMapOf<String, List<BusyBlock>>()
                 for (r in roommates) busyByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
-                val next = AssignmentAlgorithm.assignOne(chore, roommates, busyByRoommate, history, nextWeekStart)
+                val effortByChoreId = _chores.value.associate { it.id to it.effortScore }
+                val next = AssignmentAlgorithm.assignOne(chore, roommates, busyByRoommate, history, nextWeekStart, effortByChoreId)
                 choreRepo.addAssignment(next)
             }
         }
         refreshAssignments()
     }
 
-    fun swapAssignment(assignmentId: String) = viewModelScope.launch {
+    fun claimAssignment(assignmentId: String) = viewModelScope.launch {
+        val me = _currentUser.value?.uid ?: return@launch
         val householdId = _household.value?.id ?: return@launch
-        val current = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
-        val chore = _chores.value.find { it.id == current.choreId } ?: return@launch
-        val candidates = _roommates.value.filter { it.userId != current.assignedToRoommateId }
-        if (candidates.isEmpty()) return@launch
+        val a = choreRepo.getAssignments(householdId).find { it.id == assignmentId } ?: return@launch
+        if (a.status != AssignmentStatus.AVAILABLE) return@launch
 
-        val busyByRoommate = mutableMapOf<String, List<BusyBlock>>()
-        for (r in candidates) busyByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
-        val history = choreRepo.getAssignments(householdId)
-        val reassigned = AssignmentAlgorithm
-            .assignOne(chore, candidates, busyByRoommate, history, current.weekStart)
-            .copy(id = current.id)
-        choreRepo.updateAssignment(reassigned)
+        val chore = _chores.value.find { it.id == a.choreId }
+        val hasConflict = chore != null &&
+            AssignmentAlgorithm.isBusyAt(householdRepo.getBusyBlocks(me), chore.dueDayOfWeek, chore.dueHour)
+        val reason = if (a.assignedToRoommateId == me) a.reason else {
+            val recommended = _roommates.value.find { it.userId == a.assignedToRoommateId }?.displayName
+            "Picked up — was recommended for ${recommended ?: "another roommate"}"
+        }
+        choreRepo.updateAssignment(
+            a.copy(
+                assignedToRoommateId = me,
+                status = AssignmentStatus.PENDING,
+                reason = reason,
+                hasConflict = hasConflict
+            )
+        )
         refreshAssignments()
     }
 
@@ -523,6 +533,7 @@ class AppViewModel(
     }
 
     private suspend fun refreshAssignments() {
+        choreRepo.deleteStaleAvailable(weekStart)
         _assignments.value = choreRepo.getAssignments(_household.value?.id ?: return)
         refreshCompletionCounts()
     }

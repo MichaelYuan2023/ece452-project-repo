@@ -130,7 +130,9 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
     selectedRoommate?.let { roommate ->
         val isMe = roommate.userId == currentUser?.uid
         val roommateAssignments = assignments.filter {
-            it.assignedToRoommateId == roommate.userId && it.weekStart == vm.weekStart
+            it.assignedToRoommateId == roommate.userId &&
+                it.weekStart >= vm.weekStart &&
+                it.status != AssignmentStatus.AVAILABLE
         }
 
         RoommateProfileDialog(

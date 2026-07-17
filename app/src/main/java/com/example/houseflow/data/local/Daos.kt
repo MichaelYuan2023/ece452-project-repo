@@ -102,6 +102,9 @@ interface AssignmentDao {
 
     @Query("SELECT COUNT(*) FROM assignments WHERE assignedToRoommateId = :userId AND status = 'COMPLETED'")
     suspend fun countCompleted(userId: String): Int
+
+    @Query("DELETE FROM assignments WHERE status = 'AVAILABLE' AND weekStart < :cutoff")
+    suspend fun deleteStaleAvailable(cutoff: Long)
 }
 
 @Dao
