@@ -12,6 +12,8 @@ import com.example.houseflow.data.repository.RoomChoreRepository
 import com.example.houseflow.data.repository.RoomHouseholdRepository
 import com.example.houseflow.data.repository.RoomUserRepository
 import com.example.houseflow.data.repository.UserRepository
+import com.example.houseflow.notification.AndroidNotificationDispatcher
+import com.example.houseflow.notification.NotificationDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +33,8 @@ object AppContainer {
         private set
     lateinit var bulletinRepository: BulletinRepository
         private set
+    lateinit var notificationDispatcher: NotificationDispatcher
+        private set
 
     fun init(context: Context) {
         val seedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -39,5 +43,6 @@ object AppContainer {
         householdRepository = RoomHouseholdRepository(db.householdDao(), db.membershipDao(), db.busyBlockDao())
         choreRepository = RoomChoreRepository(db.choreDao(), db.assignmentDao(), db.tradeRequestDao())
         bulletinRepository = RoomBulletinRepository(db.bulletinDao())
+        notificationDispatcher = AndroidNotificationDispatcher(context.applicationContext)
     }
 }

@@ -23,7 +23,9 @@ import com.example.houseflow.model.Roommate
 import com.example.houseflow.model.TradeRequest
 import com.example.houseflow.model.TradeStatus
 import com.example.houseflow.model.User
+import com.example.houseflow.notification.NotificationDispatcher
 import com.example.houseflow.util.AssignmentAlgorithm
+import com.example.houseflow.util.ChoreDueTime
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,7 +45,8 @@ class AppViewModel(
     private val userRepo: UserRepository,
     private val householdRepo: HouseholdRepository,
     private val choreRepo: ChoreRepository,
-    private val bulletinRepo: BulletinRepository
+    private val bulletinRepo: BulletinRepository,
+    private val notificationDispatcher: NotificationDispatcher
 ) : ViewModel() {
 
     // Identity from Firebase Auth, restored automatically on launch.
@@ -193,8 +196,8 @@ class AppViewModel(
         refreshMyBlocks()
         refreshChores()
         refreshAssignments()
-        _bulletinPosts.value = bulletinRepo.getPosts(household.id)
-        _tradeRequests.value = choreRepo.getTradeRequests(household.id)
+        refreshBulletinPosts()
+        refreshTradeRequests()
         _assignmentsRun.value = _assignments.value.any { it.weekStart == weekStart }
     }
 
@@ -569,6 +572,9 @@ class AppViewModel(
 
     private suspend fun refreshTradeRequests() {
         _tradeRequests.value = choreRepo.getTradeRequests(_household.value?.id ?: return)
+        val uid = _currentUser.value?.uid ?: return
+        val nameById = _roommates.value.associate { it.userId to it.displayName }
+        notificationDispatcher.onTradeRequestsRefreshed(uid, _tradeRequests.value, nameById)
     }
 
     // --- Bulletin ---
@@ -586,12 +592,19 @@ class AppViewModel(
             timestamp = System.currentTimeMillis()
         )
         bulletinRepo.addPost(post)
-        _bulletinPosts.value = bulletinRepo.getPosts(household.id)
+        refreshBulletinPosts()
     }
 
     fun deleteBulletinPost(postId: String) = viewModelScope.launch {
         bulletinRepo.deletePost(postId)
-        _household.value?.let { _bulletinPosts.value = bulletinRepo.getPosts(it.id) }
+        refreshBulletinPosts()
+    }
+
+    private suspend fun refreshBulletinPosts() {
+        val household = _household.value ?: return
+        _bulletinPosts.value = bulletinRepo.getPosts(household.id)
+        val user = _currentUser.value ?: return
+        notificationDispatcher.onBulletinPostsRefreshed(user.uid, user.displayName, _bulletinPosts.value)
     }
 
     fun refreshOverdue() = viewModelScope.launch {
@@ -601,12 +614,9 @@ class AppViewModel(
         choreRepo.getAssignments(householdId).forEach { a ->
             if (a.status == AssignmentStatus.PENDING) {
                 val chore = choresById[a.choreId] ?: return@forEach
-                val due = if (chore.frequency == ChoreFrequency.WEEKLY) {
-                    a.weekStart + chore.dueDayOfWeek * 86_400_000L + chore.dueHour * 3_600_000L
-                } else {
-                    a.weekStart + chore.dueHour * 3_600_000L
+                if (now > ChoreDueTime.computeDueAt(a, chore)) {
+                    choreRepo.updateAssignmentStatus(a.id, AssignmentStatus.MISSED)
                 }
-                if (now > due) choreRepo.updateAssignmentStatus(a.id, AssignmentStatus.MISSED)
             }
         }
         refreshAssignments()
@@ -620,6 +630,9 @@ class AppViewModel(
         choreRepo.deleteStaleAvailable(weekStart)
         _assignments.value = choreRepo.getAssignments(_household.value?.id ?: return)
         refreshCompletionCounts()
+        val uid = _currentUser.value?.uid ?: return
+        val choresById = _chores.value.associateBy { it.id }
+        notificationDispatcher.onAssignmentsRefreshed(uid, _assignments.value, choresById)
     }
 
     private suspend fun refreshCompletionCounts() {
@@ -638,7 +651,8 @@ class AppViewModel(
                     userRepo = AppContainer.userRepository,
                     householdRepo = AppContainer.householdRepository,
                     choreRepo = AppContainer.choreRepository,
-                    bulletinRepo = AppContainer.bulletinRepository
+                    bulletinRepo = AppContainer.bulletinRepository,
+                    notificationDispatcher = AppContainer.notificationDispatcher
                 )
             }
         }
