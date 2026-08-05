@@ -3,6 +3,7 @@ package com.example.houseflow.ui.screen
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
@@ -10,10 +11,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -25,19 +27,28 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.houseflow.ui.viewmodel.AppViewModel
 
+private enum class Tab { HOME, SCHEDULE, CHORES, EXPENSES, BULLETIN, MORE }
+
+// Full-screen destinations reached from Home links / the More hub, layered on
+// top of the tab shell and dismissed with the system/back-arrow (BackHandler).
+private enum class SubScreen { SCOREBOARD, ROOMMATES, REPORTS }
+
 @Composable
 fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableStateOf(Tab.HOME) }
+    var sub by remember { mutableStateOf<SubScreen?>(null) }
 
+    // Notification runtime permission (Android 13+).
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -51,14 +62,31 @@ fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
         }
     }
 
+    // Sub-screen overlay takes over the whole surface and owns back navigation.
+    if (sub != null) {
+        BackHandler { sub = null }
+        val dismiss = { sub = null }
+        when (sub) {
+            SubScreen.SCOREBOARD -> ScoreboardScreen(vm, onBack = dismiss)
+            SubScreen.ROOMMATES -> RoommateAvailabilityScreen(vm, onBack = dismiss)
+            SubScreen.REPORTS -> InteractionReportScreen(vm, onBack = dismiss)
+            null -> Unit
+        }
+        return
+    }
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             Column {
                 HorizontalDivider(
-                    thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outline
                 )
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp
+                ) {
                     val navColors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -67,38 +95,45 @@ fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        icon = { Icon(Icons.Default.Group, contentDescription = null) },
-                        label = { Text("Roommates") },
+                        selected = tab == Tab.HOME,
+                        onClick = { tab = Tab.HOME },
+                        icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                        label = { Text("Home", style = MaterialTheme.typography.labelSmall) },
                         colors = navColors
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
+                        selected = tab == Tab.SCHEDULE,
+                        onClick = { tab = Tab.SCHEDULE },
                         icon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                        label = { Text("Schedule") },
+                        label = { Text("Schedule", style = MaterialTheme.typography.labelSmall) },
                         colors = navColors
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        icon = { Icon(Icons.Default.List, contentDescription = null) },
-                        label = { Text("Chores") },
+                        selected = tab == Tab.CHORES,
+                        onClick = { tab = Tab.CHORES },
+                        icon = { Icon(Icons.Default.Checklist, contentDescription = null) },
+                        label = { Text("Chores", style = MaterialTheme.typography.labelSmall) },
                         colors = navColors
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 3,
-                        onClick = { selectedTab = 3 },
+                        selected = tab == Tab.EXPENSES,
+                        onClick = { tab = Tab.EXPENSES },
+                        icon = { Icon(Icons.Default.Payments, contentDescription = null) },
+                        label = { Text("Expenses", style = MaterialTheme.typography.labelSmall) },
+                        colors = navColors
+                    )
+                    NavigationBarItem(
+                        selected = tab == Tab.BULLETIN,
+                        onClick = { tab = Tab.BULLETIN },
                         icon = { Icon(Icons.Default.Campaign, contentDescription = null) },
-                        label = { Text("Bulletin") },
+                        label = { Text("Bulletin", style = MaterialTheme.typography.labelSmall) },
                         colors = navColors
                     )
                     NavigationBarItem(
-                        selected = selectedTab == 4,
-                        onClick = { selectedTab = 4 },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                        label = { Text("Settings") },
+                        selected = tab == Tab.MORE,
+                        onClick = { tab = Tab.MORE },
+                        icon = { Icon(Icons.Default.Menu, contentDescription = null) },
+                        label = { Text("More", style = MaterialTheme.typography.labelSmall) },
                         colors = navColors
                     )
                 }
@@ -106,12 +141,24 @@ fun MainScreen(vm: AppViewModel, onSignOut: () -> Unit) {
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding)) {
-            when (selectedTab) {
-                0 -> RoommateAvailabilityScreen(vm)
-                1 -> AvailabilityScreen(vm)
-                2 -> ChoreListScreen(vm)
-                3 -> DashboardScreen(vm)
-                4 -> SettingsScreen(vm, onSignOut = onSignOut)
+            when (tab) {
+                Tab.HOME -> HomeScreen(
+                    vm,
+                    onOpenScoreboard = { sub = SubScreen.SCOREBOARD },
+                    onOpenChores = { tab = Tab.CHORES },
+                    onOpenExpenses = { tab = Tab.EXPENSES }
+                )
+                Tab.SCHEDULE -> AvailabilityScreen(vm)
+                Tab.CHORES -> ChoreListScreen(vm)
+                Tab.EXPENSES -> ExpensesScreen(vm)
+                Tab.BULLETIN -> DashboardScreen(vm)
+                Tab.MORE -> MoreScreen(
+                    vm,
+                    onOpenScoreboard = { sub = SubScreen.SCOREBOARD },
+                    onOpenRoommates = { sub = SubScreen.ROOMMATES },
+                    onOpenReports = { sub = SubScreen.REPORTS },
+                    onSignOut = onSignOut
+                )
             }
         }
     }

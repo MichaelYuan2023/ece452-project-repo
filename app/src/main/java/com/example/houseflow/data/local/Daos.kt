@@ -10,8 +10,12 @@ import com.example.houseflow.model.BulletinPost
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
+import com.example.houseflow.model.Expense
+import com.example.houseflow.model.ExpenseShare
 import com.example.houseflow.model.Household
+import com.example.houseflow.model.PointsEntry
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.Settlement
 import com.example.houseflow.model.TradeRequest
 import com.example.houseflow.model.TradeStatus
 import com.example.houseflow.model.User
@@ -66,8 +70,17 @@ interface BusyBlockDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(block: BusyBlock)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(blocks: List<BusyBlock>)
+
     @Query("DELETE FROM busy_blocks WHERE id = :blockId")
     suspend fun delete(blockId: String)
+
+    // HF-11: removes only calendar-imported blocks (sourceUid set), leaving
+    // manually added blocks untouched. Used to replace the imported set on
+    // re-import so there are never duplicates and upstream removals propagate.
+    @Query("DELETE FROM busy_blocks WHERE roommateId = :roommateId AND sourceUid IS NOT NULL")
+    suspend fun deleteImportedForRoommate(roommateId: String)
 }
 
 @Dao
@@ -139,4 +152,63 @@ interface BulletinDao {
 
     @Query("DELETE FROM bulletin_posts WHERE id = :postId")
     suspend fun delete(postId: String)
+}
+
+// --- HF-13: gamification points ledger ---
+
+@Dao
+interface PointsDao {
+    @Query("SELECT * FROM points_entries WHERE householdId = :householdId ORDER BY awardedAt DESC")
+    suspend fun getForHousehold(householdId: String): List<PointsEntry>
+
+    // IGNORE makes awarding idempotent: the PK is the assignment id, so a second
+    // award for the same completed assignment is a no-op.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(entry: PointsEntry): Long
+
+    @Query("SELECT COUNT(*) FROM points_entries WHERE id = :assignmentId")
+    suspend fun existsForAssignment(assignmentId: String): Int
+
+    // Cascade with chore deletion — mirrors TradeRequestDao.deleteForChore. Must
+    // run before the assignments themselves are deleted (the subquery reads them).
+    @Query("DELETE FROM points_entries WHERE id IN (SELECT id FROM assignments WHERE choreId = :choreId)")
+    suspend fun deleteForChore(choreId: String)
+}
+
+// --- HF-15: shared expenses ---
+
+@Dao
+interface ExpenseDao {
+    @Query("SELECT * FROM expenses WHERE householdId = :householdId ORDER BY createdAt DESC")
+    suspend fun getForHousehold(householdId: String): List<Expense>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(expense: Expense)
+
+    @Query("DELETE FROM expenses WHERE id = :expenseId")
+    suspend fun delete(expenseId: String)
+}
+
+@Dao
+interface ExpenseShareDao {
+    @Query("SELECT * FROM expense_shares WHERE householdId = :householdId")
+    suspend fun getForHousehold(householdId: String): List<ExpenseShare>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(shares: List<ExpenseShare>)
+
+    @Query("DELETE FROM expense_shares WHERE expenseId = :expenseId")
+    suspend fun deleteForExpense(expenseId: String)
+}
+
+@Dao
+interface SettlementDao {
+    @Query("SELECT * FROM settlements WHERE householdId = :householdId ORDER BY createdAt DESC")
+    suspend fun getForHousehold(householdId: String): List<Settlement>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(settlement: Settlement)
+
+    @Query("DELETE FROM settlements WHERE id = :settlementId")
+    suspend fun delete(settlementId: String)
 }

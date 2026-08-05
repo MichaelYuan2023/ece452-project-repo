@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -82,7 +83,7 @@ private fun typeColor(type: BlockType): Color = when (type) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoommateAvailabilityScreen(vm: AppViewModel) {
+fun RoommateAvailabilityScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
     val roommates by vm.roommates.collectAsState()
     val myBusyBlocks by vm.myBusyBlocks.collectAsState()
     val assignments by vm.assignments.collectAsState()
@@ -94,7 +95,18 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
     var pendingAction by remember { mutableStateOf<Pair<Roommate, RoleAction>?>(null) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Roommates") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text("Roommates") },
+                navigationIcon = {
+                    if (onBack != null) {
+                        androidx.compose.material3.IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                }
+            )
+        }
     ) { padding ->
         if (roommates.isEmpty()) {
             Box(
@@ -108,8 +120,8 @@ fun RoommateAvailabilityScreen(vm: AppViewModel) {
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item { Spacer(Modifier.height(8.dp)) }
                 items(roommates, key = { it.userId }) { roommate ->
@@ -214,26 +226,14 @@ private fun RoommateListItem(
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar circle with initial
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = roommate.displayName.first().uppercase(),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
+            // Colored avatar (deterministic per name)
+            com.example.houseflow.ui.components.Avatar(roommate.displayName, size = 48.dp)
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

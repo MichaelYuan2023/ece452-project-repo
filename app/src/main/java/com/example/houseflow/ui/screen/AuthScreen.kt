@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,22 +67,33 @@ fun AuthScreen(vm: AppViewModel, onAuthenticated: () -> Unit = {}) {
         }
     }
 
-    Scaffold { padding ->
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+        focusedLabelColor = MaterialTheme.colorScheme.primary
+    )
+
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(32.dp),
+                .padding(horizontal = 32.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Welcome to HouseFlow", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.height(8.dp))
+            Text(
+                "HouseFlow",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(6.dp))
             Text(
                 if (isSignUp) "Create an account to get started." else "Sign in to continue.",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(36.dp))
 
             if (isSignUp) {
                 OutlinedTextField(
@@ -89,9 +102,11 @@ fun AuthScreen(vm: AppViewModel, onAuthenticated: () -> Unit = {}) {
                     label = { Text("Display name") },
                     singleLine = true,
                     enabled = !loading,
+                    shape = MaterialTheme.shapes.small,
+                    colors = textFieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
             }
 
             OutlinedTextField(
@@ -100,10 +115,12 @@ fun AuthScreen(vm: AppViewModel, onAuthenticated: () -> Unit = {}) {
                 label = { Text("Email") },
                 singleLine = true,
                 enabled = !loading,
+                shape = MaterialTheme.shapes.small,
+                colors = textFieldColors,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
             OutlinedTextField(
                 value = password,
@@ -111,18 +128,25 @@ fun AuthScreen(vm: AppViewModel, onAuthenticated: () -> Unit = {}) {
                 label = { Text("Password") },
                 singleLine = true,
                 enabled = !loading,
+                shape = MaterialTheme.shapes.small,
+                colors = textFieldColors,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 isError = error != null,
                 supportingText = error?.let { { Text(it) } },
                 modifier = Modifier.fillMaxWidth()
             )
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(28.dp))
 
             Button(
                 onClick = { submit() },
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = MaterialTheme.shapes.medium,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
                 enabled = canSubmit
             ) {
                 if (loading) {
@@ -132,10 +156,13 @@ fun AuthScreen(vm: AppViewModel, onAuthenticated: () -> Unit = {}) {
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
-                    Text(if (isSignUp) "Sign Up" else "Sign In")
+                    Text(
+                        if (isSignUp) "Sign Up" else "Sign In",
+                        style = MaterialTheme.typography.labelLarge
+                    )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
 
             TextButton(
                 onClick = {
@@ -146,7 +173,9 @@ fun AuthScreen(vm: AppViewModel, onAuthenticated: () -> Unit = {}) {
             ) {
                 Text(
                     if (isSignUp) "Already have an account? Sign in"
-                    else "New here? Create an account"
+                    else "New here? Create an account",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

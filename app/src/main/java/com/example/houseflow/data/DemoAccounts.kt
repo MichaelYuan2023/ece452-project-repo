@@ -17,4 +17,19 @@ object DemoAccounts {
     val PRIYA = User(uid = "NvrEZtU6yae7BtKgFOHecuQlrz52", email = "priya@houseflow.demo", displayName = "Priya")
 
     val all: List<User> = listOf(MAYA, JAKE, PRIYA)
+
+    // ---- "Ana Baker" demo household (presentation flow) ----
+    // ANA is a REAL Firebase account (ana@houseflow.demo / password: anademo1) so a
+    // presenter can sign in as her. Her 4 roommates are Room-only mock members —
+    // they never sign in; they exist to populate schedules, chores, and the two
+    // incoming chore-trade requests addressed to Ana.
+    const val ANA_HOUSEHOLD_ID = "household-ana"
+
+    val ANA = User(uid = "UHpZWG2aWDfY7MGGjHB2OrgVeo32", email = "ana@houseflow.demo", displayName = "Ana Baker")
+    val BEN = User(uid = "mock-ben", email = "ben@houseflow.demo", displayName = "Ben Carter")
+    val CHLOE = User(uid = "mock-chloe", email = "chloe@houseflow.demo", displayName = "Chloe Nguyen")
+    val DIEGO = User(uid = "mock-diego", email = "diego@houseflow.demo", displayName = "Diego Silva")
+    val EMMA = User(uid = "mock-emma", email = "emma@houseflow.demo", displayName = "Emma Rossi")
+
+    val anaHousehold: List<User> = listOf(ANA, BEN, CHLOE, DIEGO, EMMA)
 }

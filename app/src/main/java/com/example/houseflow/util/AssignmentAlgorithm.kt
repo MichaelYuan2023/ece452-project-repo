@@ -4,8 +4,12 @@ import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
+import com.example.houseflow.model.Recurrence
 import com.example.houseflow.model.Roommate
+import java.util.TimeZone
 import java.util.UUID
+
+private const val DAY_MS: Long = 24L * 3600 * 1000
 
 object AssignmentAlgorithm {
 
@@ -23,7 +27,7 @@ object AssignmentAlgorithm {
         val best = scores.maxByOrNull { it.value }!!
         val winner = best.key
         val winnerBlocks = busyBlocksByRoommate[winner.userId] ?: emptyList()
-        val isBusy = isBusyAt(winnerBlocks, chore.dueDayOfWeek, chore.dueHour)
+        val isBusy = isBusyAt(winnerBlocks, chore.dueDayOfWeek, chore.dueHour, weekStart + chore.dueDayOfWeek * DAY_MS)
 
         val reason = buildReason(winner, chore, winnerBlocks, history, weekStart, isBusy)
 
@@ -54,7 +58,7 @@ object AssignmentAlgorithm {
         var points = 100
 
         // Availability penalty: busy at the due time
-        if (isBusyAt(blocks, chore.dueDayOfWeek, chore.dueHour)) points -= 30
+        if (isBusyAt(blocks, chore.dueDayOfWeek, chore.dueHour, weekStart + chore.dueDayOfWeek * DAY_MS)) points -= 30
 
         // Recent assignment penalty: -10 per assignment in the past 2 weeks
         val twoWeeksAgo = weekStart - 14L * 24 * 3600 * 1000
@@ -88,9 +92,24 @@ object AssignmentAlgorithm {
         return points
     }
 
-    // True if the given hour falls inside any of the roommate's busy blocks on that day.
-    fun isBusyAt(blocks: List<BusyBlock>, dayOfWeek: Int, hour: Int): Boolean =
-        blocks.any { it.dayOfWeek == dayOfWeek && hour >= it.startHour && hour < it.endHour }
+    // True if [hour] falls inside any of the roommate's busy blocks for the given
+    // weekday/date. WEEKLY blocks match by weekday; ONE_TIME events match only on
+    // their exact date (when [date] is supplied). [date] is epoch ms; pass null to
+    // consider weekly blocks only.
+    fun isBusyAt(blocks: List<BusyBlock>, dayOfWeek: Int, hour: Int, date: Long? = null): Boolean =
+        blocks.any { b ->
+            hour >= b.startHour && hour < b.endHour && when (b.recurrence) {
+                Recurrence.WEEKLY -> b.dayOfWeek == dayOfWeek
+                Recurrence.ONE_TIME -> date != null && b.date != null && sameLocalDay(b.date, date)
+            }
+        }
+
+    // Whether two epoch-ms instants fall on the same local calendar day. Uses the
+    // timezone offset so a DST shift can't split a day.
+    private fun sameLocalDay(a: Long, b: Long): Boolean {
+        val tz = TimeZone.getDefault()
+        return (a + tz.getOffset(a)) / DAY_MS == (b + tz.getOffset(b)) / DAY_MS
+    }
 
     private val DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 

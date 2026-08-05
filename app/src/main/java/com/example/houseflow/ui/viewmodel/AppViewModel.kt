@@ -9,36 +9,70 @@ import com.example.houseflow.data.AppContainer
 import com.example.houseflow.data.repository.AuthRepository
 import com.example.houseflow.data.repository.BulletinRepository
 import com.example.houseflow.data.repository.ChoreRepository
+import com.example.houseflow.data.repository.ExpenseRepository
 import com.example.houseflow.data.repository.HouseholdRepository
+import com.example.houseflow.data.repository.PointsRepository
 import com.example.houseflow.data.repository.UserRepository
 import com.example.houseflow.model.AssignmentStatus
+import com.example.houseflow.model.BlockType
 import com.example.houseflow.model.BulletinPost
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
 import com.example.houseflow.model.ChoreFrequency
+import com.example.houseflow.model.Expense
+import com.example.houseflow.model.ExpenseShare
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.HouseholdRole
+import com.example.houseflow.model.PointsEntry
+import com.example.houseflow.model.Recurrence
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.Settlement
+import com.example.houseflow.model.SplitType
 import com.example.houseflow.model.TradeRequest
 import com.example.houseflow.model.TradeStatus
 import com.example.houseflow.model.User
 import com.example.houseflow.notification.NotificationDispatcher
 import com.example.houseflow.util.AssignmentAlgorithm
 import com.example.houseflow.util.ChoreDueTime
+import com.example.houseflow.util.ChoreScheduler
+import com.example.houseflow.util.ExpenseMath
+import com.example.houseflow.util.IcsParser
+import com.example.houseflow.util.PointsPolicy
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.UUID
 
 // Drives top-level navigation. Derived from auth + household state.
 enum class SessionState { LOADING, SIGNED_OUT, NEEDS_HOUSEHOLD, IN_HOUSEHOLD }
+
+// HF-13: one ranked row on the household scoreboard.
+data class LeaderboardEntry(
+    val userId: String,
+    val displayName: String,
+    val weeklyPoints: Int,
+    val allTimePoints: Int,
+    val rank: Int
+)
+
+// HF-13: the current user's personal gamification summary.
+data class PointsSummary(
+    val weeklyPoints: Int = 0,
+    val allTimePoints: Int = 0,
+    val level: Int = 1,
+    val pointsIntoLevel: Int = 0,
+    val pointsForNextLevel: Int = PointsPolicy.POINTS_PER_LEVEL,
+    val streakWeeks: Int = 0
+)
 
 class AppViewModel(
     private val authRepo: AuthRepository,
@@ -46,6 +80,8 @@ class AppViewModel(
     private val householdRepo: HouseholdRepository,
     private val choreRepo: ChoreRepository,
     private val bulletinRepo: BulletinRepository,
+    private val pointsRepo: PointsRepository,
+    private val expenseRepo: ExpenseRepository,
     private val notificationDispatcher: NotificationDispatcher
 ) : ViewModel() {
 
@@ -81,10 +117,6 @@ class AppViewModel(
     private val _assignments = MutableStateFlow<List<ChoreAssignment>>(emptyList())
     val assignments: StateFlow<List<ChoreAssignment>> = _assignments.asStateFlow()
 
-    // Used for the "run assignments" button — resets when new chores are added.
-    private val _assignmentsRun = MutableStateFlow(false)
-    val assignmentsRun: StateFlow<Boolean> = _assignmentsRun.asStateFlow()
-
     private val _bulletinPosts = MutableStateFlow<List<BulletinPost>>(emptyList())
     val bulletinPosts: StateFlow<List<BulletinPost>> = _bulletinPosts.asStateFlow()
 
@@ -95,6 +127,18 @@ class AppViewModel(
     // the roommate UI and available to the HF-8 recommendation engine.
     private val _completionCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     val completionCounts: StateFlow<Map<String, Int>> = _completionCounts.asStateFlow()
+
+    // HF-13: the household's points ledger. All gamification totals derive from it.
+    private val _pointsEntries = MutableStateFlow<List<PointsEntry>>(emptyList())
+    val pointsEntries: StateFlow<List<PointsEntry>> = _pointsEntries.asStateFlow()
+
+    // HF-15: shared-expense state.
+    private val _expenses = MutableStateFlow<List<Expense>>(emptyList())
+    val expenses: StateFlow<List<Expense>> = _expenses.asStateFlow()
+    private val _expenseShares = MutableStateFlow<List<ExpenseShare>>(emptyList())
+    val expenseShares: StateFlow<List<ExpenseShare>> = _expenseShares.asStateFlow()
+    private val _settlements = MutableStateFlow<List<Settlement>>(emptyList())
+    val settlements: StateFlow<List<Settlement>> = _settlements.asStateFlow()
 
     val sessionState: StateFlow<SessionState> =
         combine(_currentUser, _household, _restoring) { user, household, restoring ->
@@ -122,6 +166,37 @@ class AppViewModel(
         )
 
     val weekStart: Long = currentWeekStart()
+
+    // HF-13: household scoreboard, ranked by weekly points (ties broken by
+    // all-time points, then name). Derived purely from the ledger + roommates.
+    val leaderboard: StateFlow<List<LeaderboardEntry>> =
+        combine(_pointsEntries, _roommates) { entries, roommates ->
+            buildLeaderboard(entries, roommates)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // HF-13: the current user's weekly/all-time points, level, and streak.
+    val myPointsSummary: StateFlow<PointsSummary> =
+        combine(_pointsEntries, _currentUser) { entries, user ->
+            buildPointsSummary(entries, user?.uid)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, PointsSummary())
+
+    // HF-15: per-roommate net balances derived from expenses, shares, settlements.
+    val balances: StateFlow<List<ExpenseMath.Balance>> =
+        combine(_roommates, _expenses, _expenseShares, _settlements) { roommates, expenses, shares, settlements ->
+            ExpenseMath.balances(roommates, expenses, shares, settlements)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // What the current user owes, and is owed by, each roommate individually.
+    // Settling is a two-party act, so the expenses UI works from these rather
+    // than from the household-wide nets above, which can read as "all settled"
+    // while real debts remain between individual pairs.
+    val myPairBalances: StateFlow<List<ExpenseMath.PairBalance>> =
+        combine(
+            _currentUser, _roommates, _expenses, _expenseShares, _settlements
+        ) { user, roommates, expenses, shares, settlements ->
+            val uid = user?.uid ?: return@combine emptyList()
+            ExpenseMath.pairBalances(uid, roommates, expenses, shares, settlements)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
         // Keep identity in sync with Firebase auth state and restore the user's
@@ -195,10 +270,11 @@ class AppViewModel(
         _roommates.value = syncOwnRoommateDisplayName(household)
         refreshMyBlocks()
         refreshChores()
-        refreshAssignments()
         refreshBulletinPosts()
         refreshTradeRequests()
-        _assignmentsRun.value = _assignments.value.any { it.weekStart == weekStart }
+        refreshPoints()
+        refreshExpenses()
+        syncChoreBoard()
     }
 
     // Self-heals a Roommate row whose displayName was captured before the
@@ -223,10 +299,13 @@ class AppViewModel(
         _myBusyBlocks.value = emptyList()
         _chores.value = emptyList()
         _assignments.value = emptyList()
-        _assignmentsRun.value = false
         _bulletinPosts.value = emptyList()
         _tradeRequests.value = emptyList()
         _completionCounts.value = emptyMap()
+        _pointsEntries.value = emptyList()
+        _expenses.value = emptyList()
+        _expenseShares.value = emptyList()
+        _settlements.value = emptyList()
     }
 
     // --- Household ---
@@ -348,6 +427,111 @@ class AppViewModel(
         _myBusyBlocks.value = householdRepo.getBusyBlocks(_currentUser.value?.uid ?: return)
     }
 
+    // --- Calendar import (HF-11) ---
+
+    // Imports an .ics calendar from raw text into the current user's busy blocks.
+    // Returns the number of blocks imported. De-duplicating: it replaces the
+    // user's previously imported blocks, so re-importing never creates
+    // duplicates and upstream removals disappear (manual blocks are untouched).
+    suspend fun importCalendarFromText(icsText: String): Result<Int> = runCatching {
+        val uid = _currentUser.value?.uid ?: error("Not signed in")
+        val blocks = mapIcsToBlocks(IcsParser.parse(icsText), uid)
+        householdRepo.replaceImportedBusyBlocks(uid, blocks)
+        refreshMyBlocks()
+        blocks.size
+    }
+
+    // Fetches an .ics feed over http(s) (webcal:// is normalized to https) off the
+    // main thread, then imports it.
+    suspend fun importCalendarFromUrl(url: String): Result<Int> = runCatching {
+        val normalized = url.trim()
+            .replaceFirst(Regex("^webcal://", RegexOption.IGNORE_CASE), "https://")
+        require(normalized.startsWith("http://", true) || normalized.startsWith("https://", true)) {
+            "Enter an http(s) or webcal calendar URL"
+        }
+        val text = withContext(Dispatchers.IO) {
+            val conn = (java.net.URL(normalized).openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 15000
+                instanceFollowRedirects = true
+                setRequestProperty("Accept", "text/calendar, text/plain, */*")
+            }
+            try {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } finally {
+                conn.disconnect()
+            }
+        }
+        importCalendarFromText(text).getOrThrow()
+    }
+
+    // Maps parsed ICS events to busy blocks. Timed events → ONE_TIME on their
+    // date (or WEEKLY when the event has a weekly RRULE); all-day → whole day.
+    // Ids are deterministic and carry the source UID so re-imports collapse and
+    // imported blocks are distinguishable from manual ones.
+    private fun mapIcsToBlocks(events: List<IcsParser.IcsEvent>, roommateId: String): List<BusyBlock> {
+        val out = mutableListOf<BusyBlock>()
+        for ((index, e) in events.withIndex()) {
+            val start = e.start ?: continue
+            val dateMillis = localMidnight(start.year, start.month, start.day)
+            val dow = mondayIndexOf(dateMillis)
+            val startHour: Int
+            val endHour: Int
+            if (start.dateOnly) {
+                startHour = 0; endHour = 24
+            } else {
+                startHour = start.hour.coerceIn(0, 23)
+                val rawEnd = e.end?.takeUnless { it.dateOnly }?.hour ?: (startHour + 1)
+                endHour = rawEnd.coerceIn(startHour + 1, 24)
+            }
+            val uid = e.uid?.takeIf { it.isNotBlank() } ?: "nouid-$index-$dateMillis"
+            val stamp = "%04d%02d%02d".format(start.year, start.month, start.day)
+            val block = if (e.weekly) {
+                BusyBlock(
+                    id = "ics:$uid",
+                    roommateId = roommateId,
+                    dayOfWeek = dow,
+                    startHour = startHour,
+                    endHour = endHour,
+                    title = e.summary.ifBlank { "Imported event" },
+                    type = BlockType.CLASS,
+                    recurrence = Recurrence.WEEKLY,
+                    date = null,
+                    sourceUid = uid
+                )
+            } else {
+                BusyBlock(
+                    id = "ics:$uid:$stamp",
+                    roommateId = roommateId,
+                    dayOfWeek = dow,
+                    startHour = startHour,
+                    endHour = endHour,
+                    title = e.summary.ifBlank { "Imported event" },
+                    type = BlockType.CLASS,
+                    recurrence = Recurrence.ONE_TIME,
+                    date = dateMillis,
+                    sourceUid = uid
+                )
+            }
+            out.add(block)
+        }
+        // Collapse any exact id collisions (same uid+date) so insertAll doesn't
+        // rely on REPLACE ordering.
+        return out.associateBy { it.id }.values.toList()
+    }
+
+    private fun localMidnight(year: Int, month1: Int, day: Int): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.clear()
+        cal.set(year, month1 - 1, day, 0, 0, 0)
+        return cal.timeInMillis
+    }
+
+    private fun mondayIndexOf(dateMillis: Long): Int {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = dateMillis }
+        return (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+    }
+
     // --- Chores ---
 
     // Chore authoring (create/edit/delete) is restricted to CREATOR and ADMIN.
@@ -361,7 +545,10 @@ class AppViewModel(
         if (!canManageChores()) return@launch
         choreRepo.addChore(chore)
         refreshChores()
-        runAssignmentsInternal()
+        // Posting is automatic: syncChoreBoard puts the new chore's current
+        // occurrence on the pickup board. It's a no-op for chores already posted,
+        // so adding one chore no longer floods the board with every other chore.
+        syncChoreBoard()
     }
 
     fun updateChore(chore: Chore) = viewModelScope.launch {
@@ -372,76 +559,66 @@ class AppViewModel(
 
     fun deleteChore(choreId: String) = viewModelScope.launch {
         if (!canManageChores()) return@launch
+        // HF-13: remove the chore's points entries before the assignments they
+        // reference are deleted (the cascade subquery reads assignments).
+        pointsRepo.deleteForChore(choreId)
         choreRepo.deleteChore(choreId)
         refreshChores()
         refreshAssignments()
         refreshTradeRequests()
+        refreshPoints()
     }
 
-    fun runAssignments() = viewModelScope.launch { runAssignmentsInternal() }
-
-    private suspend fun runAssignmentsInternal() {
-        val household = _household.value ?: return
+    // Keeps the pickup board current and truthful. Idempotent, so it's safe to
+    // run on every load and after adding a chore:
+    //   1. Past-due claimed (PENDING) chores are marked MISSED.
+    //   2. Each chore that has no occurrence for its current period gets one
+    //      fresh AVAILABLE occurrence (with a suggested roommate). Claimed and
+    //      completed occurrences are left alone, so finishing a chore does NOT
+    //      respawn it until its next period comes around.
+    private suspend fun syncChoreBoard() {
+        val household = _household.value ?: run { refreshAssignments(); return }
         val roommates = _roommates.value
         val chores = _chores.value
-        if (chores.isEmpty() || roommates.isEmpty()) return
+        val now = System.currentTimeMillis()
 
-        val busyBlocksByRoommate = mutableMapOf<String, List<BusyBlock>>()
-        for (r in roommates) busyBlocksByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
-
-        val history = choreRepo.getAssignments(household.id)
-        val msPerDay = 86_400_000L
-        val weekEnd = weekStart + 7 * msPerDay
-
-        val slots = mutableListOf<Pair<Chore, Long>>()
-        for (c in chores) {
-            when (c.frequency) {
-                ChoreFrequency.WEEKLY -> {
-                    if (history.none { it.choreId == c.id && it.weekStart == weekStart }) {
-                        slots.add(c to weekStart)
-                    }
-                }
-                ChoreFrequency.ONE_TIME -> {
-                    if (history.none { it.choreId == c.id }) {
-                        slots.add(c to (weekStart + c.dueDayOfWeek * msPerDay))
-                    }
-                }
-                ChoreFrequency.DAILY -> {
-                    var date = weekStart
-                    while (date < weekEnd) {
-                        val d = date
-                        if (history.none { it.choreId == c.id && it.weekStart == d }) {
-                            slots.add(c to date)
-                        }
-                        date += msPerDay
-                    }
-                }
-                ChoreFrequency.EVERY_N_DAYS -> {
-                    val interval = (c.intervalDays ?: 2) * msPerDay
-                    var date = weekStart + c.dueDayOfWeek * msPerDay
-                    while (date < weekEnd) {
-                        val d = date
-                        if (history.none { it.choreId == c.id && it.weekStart == d }) {
-                            slots.add(c to date)
-                        }
-                        date += interval
-                    }
+        // 1. Overdue sweep.
+        val choresById = chores.associateBy { it.id }
+        choreRepo.getAssignments(household.id).forEach { a ->
+            if (a.status == AssignmentStatus.PENDING) {
+                val chore = choresById[a.choreId] ?: return@forEach
+                if (now > ChoreDueTime.computeDueAt(a, chore)) {
+                    choreRepo.updateAssignmentStatus(a.id, AssignmentStatus.MISSED)
                 }
             }
         }
 
-        val effortByChoreId = chores.associate { it.id to it.effortScore }
-        val newAssignments = mutableListOf<ChoreAssignment>()
-        for ((chore, dueDate) in slots) {
-            val allHistory = history + newAssignments
-            val assignment = AssignmentAlgorithm.assignOne(
-                chore, roommates, busyBlocksByRoommate, allHistory, dueDate, effortByChoreId
-            )
-            newAssignments.add(assignment)
+        // 2. Post each chore's current-period occurrence if it's missing. Needs
+        //    roommates so the algorithm can pick a suggestion. ChoreScheduler
+        //    decides the anchor per frequency; already-posted periods are skipped.
+        if (roommates.isNotEmpty() && chores.isNotEmpty()) {
+            var history = choreRepo.getAssignments(household.id)
+            val busyByRoommate = mutableMapOf<String, List<BusyBlock>>()
+            for (r in roommates) busyByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
+            val effortByChoreId = chores.associate { it.id to it.effortScore }
+            val today = todayMidnight()
+
+            for (chore in chores) {
+                val existingAnchors = history
+                    .filter { it.choreId == chore.id }
+                    .map { it.weekStart }
+                    .toSet()
+                val anchor = ChoreScheduler.anchorToPost(
+                    chore, existingAnchors, weekStart, today, now
+                ) ?: continue
+                val occurrence = AssignmentAlgorithm.assignOne(
+                    chore, roommates, busyByRoommate, history, anchor, effortByChoreId
+                )
+                choreRepo.addAssignment(occurrence)
+                history = history + occurrence // so the next chore's scoring sees it
+            }
         }
 
-        newAssignments.forEach { choreRepo.addAssignment(it) }
-        _assignmentsRun.value = true
         refreshAssignments()
     }
 
@@ -453,24 +630,28 @@ class AppViewModel(
         userRepo.incrementCompletedCount(completed.assignedToRoommateId)
 
         val chore = _chores.value.find { it.id == completed.choreId }
-        val roommates = _roommates.value
-        if (chore != null && chore.frequency != ChoreFrequency.ONE_TIME && roommates.isNotEmpty()) {
-            val msPerDay = 24L * 3600 * 1000
-            val nextWeekStart = completed.weekStart + when (chore.frequency) {
-                ChoreFrequency.DAILY -> msPerDay
-                ChoreFrequency.EVERY_N_DAYS -> (chore.intervalDays ?: 2) * msPerDay
-                else -> 7 * msPerDay
-            }
-            val history = choreRepo.getAssignments(householdId)
-            val alreadyScheduled = history.any { it.choreId == chore.id && it.weekStart == nextWeekStart }
-            if (!alreadyScheduled) {
-                val busyByRoommate = mutableMapOf<String, List<BusyBlock>>()
-                for (r in roommates) busyByRoommate[r.userId] = householdRepo.getBusyBlocks(r.userId)
-                val effortByChoreId = _chores.value.associate { it.id to it.effortScore }
-                val next = AssignmentAlgorithm.assignOne(chore, roommates, busyByRoommate, history, nextWeekStart, effortByChoreId)
-                choreRepo.addAssignment(next)
-            }
+
+        // HF-13: award points for the completion. Runs after the completion has
+        // been persisted so a points failure can never block marking done.
+        // Idempotent — the ledger PK is the assignment id.
+        if (chore != null) {
+            pointsRepo.award(
+                PointsEntry(
+                    id = completed.id,
+                    householdId = householdId,
+                    userId = completed.assignedToRoommateId,
+                    choreName = chore.name,
+                    points = PointsPolicy.pointsFor(chore),
+                    weekStart = completed.weekStart,
+                    awardedAt = System.currentTimeMillis()
+                )
+            )
+            refreshPoints()
         }
+        // No instant respawn: the next occurrence of a recurring chore is posted
+        // by syncChoreBoard() when its next period comes around (next day / week /
+        // interval), so completing a chore doesn't immediately put it back on the
+        // pickup board. `chore` above is still used for the points award.
         refreshAssignments()
     }
 
@@ -482,7 +663,10 @@ class AppViewModel(
 
         val chore = _chores.value.find { it.id == a.choreId }
         val hasConflict = chore != null &&
-            AssignmentAlgorithm.isBusyAt(householdRepo.getBusyBlocks(me), chore.dueDayOfWeek, chore.dueHour)
+            AssignmentAlgorithm.isBusyAt(
+                householdRepo.getBusyBlocks(me), chore.dueDayOfWeek, chore.dueHour,
+                a.weekStart + chore.dueDayOfWeek * DAY_MS
+            )
         val reason = if (a.assignedToRoommateId == me) a.reason else {
             val recommended = _roommates.value.find { it.userId == a.assignedToRoommateId }?.displayName
             "Picked up — was recommended for ${recommended ?: "another roommate"}"
@@ -556,7 +740,10 @@ class AppViewModel(
         if (resolved && accept) {
             val chore = _chores.value.find { it.id == a.choreId }
             val hasConflict = chore != null &&
-                AssignmentAlgorithm.isBusyAt(householdRepo.getBusyBlocks(me), chore.dueDayOfWeek, chore.dueHour)
+                AssignmentAlgorithm.isBusyAt(
+                    householdRepo.getBusyBlocks(me), chore.dueDayOfWeek, chore.dueHour,
+                    a.weekStart + chore.dueDayOfWeek * DAY_MS
+                )
             val fromName = _roommates.value.find { it.userId == request.fromUserId }?.displayName ?: "a roommate"
             choreRepo.updateAssignment(
                 a.copy(
@@ -643,6 +830,152 @@ class AppViewModel(
         _completionCounts.value = counts
     }
 
+    // --- HF-13: points ---
+
+    private suspend fun refreshPoints() {
+        _pointsEntries.value = pointsRepo.getEntries(_household.value?.id ?: return)
+    }
+
+    private fun buildLeaderboard(
+        entries: List<PointsEntry>,
+        roommates: List<Roommate>
+    ): List<LeaderboardEntry> {
+        val weeklyByUser = entries.filter { it.weekStart == weekStart }
+            .groupBy { it.userId }
+            .mapValues { (_, es) -> es.sumOf { it.points } }
+        val allTimeByUser = entries.groupBy { it.userId }
+            .mapValues { (_, es) -> es.sumOf { it.points } }
+
+        return roommates
+            .map { r ->
+                Triple(r, weeklyByUser[r.userId] ?: 0, allTimeByUser[r.userId] ?: 0)
+            }
+            .sortedWith(
+                compareByDescending<Triple<Roommate, Int, Int>> { it.second }
+                    .thenByDescending { it.third }
+                    .thenBy { it.first.displayName.lowercase() }
+            )
+            .mapIndexed { index, (r, weekly, allTime) ->
+                LeaderboardEntry(
+                    userId = r.userId,
+                    displayName = r.displayName,
+                    weeklyPoints = weekly,
+                    allTimePoints = allTime,
+                    rank = index + 1
+                )
+            }
+    }
+
+    private fun buildPointsSummary(entries: List<PointsEntry>, uid: String?): PointsSummary {
+        if (uid == null) return PointsSummary()
+        val mine = entries.filter { it.userId == uid }
+        val weekly = mine.filter { it.weekStart == weekStart }.sumOf { it.points }
+        val allTime = mine.sumOf { it.points }
+        val weeksWithPoints = mine.map { it.weekStart }.toSet()
+        return PointsSummary(
+            weeklyPoints = weekly,
+            allTimePoints = allTime,
+            level = PointsPolicy.levelFor(allTime),
+            pointsIntoLevel = PointsPolicy.pointsIntoLevel(allTime),
+            pointsForNextLevel = PointsPolicy.POINTS_PER_LEVEL,
+            streakWeeks = PointsPolicy.streak(weeksWithPoints, weekStart, WEEK_MILLIS)
+        )
+    }
+
+    // --- HF-15: shared expenses ---
+
+    // Records an expense paid by [paidByUserId], split equally among
+    // [participantUserIds]. No-op if the amount or participant set is invalid.
+    fun addExpense(
+        description: String,
+        amountCents: Int,
+        paidByUserId: String,
+        participantUserIds: List<String>
+    ) = viewModelScope.launch {
+        val household = _household.value ?: return@launch
+        val creator = _currentUser.value?.uid ?: return@launch
+        if (amountCents <= 0 || participantUserIds.isEmpty()) return@launch
+
+        val expenseId = UUID.randomUUID().toString()
+        val expense = Expense(
+            id = expenseId,
+            householdId = household.id,
+            paidByUserId = paidByUserId,
+            createdByUserId = creator,
+            description = description.trim(),
+            amountCents = amountCents,
+            splitType = SplitType.EQUAL,
+            createdAt = System.currentTimeMillis()
+        )
+        val shares = ExpenseMath.equalSplit(amountCents, participantUserIds).map { (userId, cents) ->
+            ExpenseShare(
+                id = "$expenseId:$userId",
+                expenseId = expenseId,
+                householdId = household.id,
+                userId = userId,
+                shareCents = cents
+            )
+        }
+        expenseRepo.addExpense(expense, shares)
+        refreshExpenses()
+    }
+
+    // Deletes an expense. Allowed for its creator or a household ADMIN/CREATOR.
+    fun deleteExpense(expenseId: String) = viewModelScope.launch {
+        val me = _currentUser.value?.uid ?: return@launch
+        val expense = _expenses.value.find { it.id == expenseId } ?: return@launch
+        val isManager = currentUserRole.value == HouseholdRole.CREATOR ||
+            currentUserRole.value == HouseholdRole.ADMIN
+        if (expense.createdByUserId != me && !isManager) return@launch
+        expenseRepo.deleteExpense(expenseId)
+        refreshExpenses()
+    }
+
+    // Records a repayment from [fromUserId] to [toUserId], offsetting balances.
+    // The pair's current balances have to agree that the payer is the one in
+    // debt and that the amount does not overshoot — a settlement recorded the
+    // wrong way round or for too much pushes both parties further apart instead
+    // of toward zero.
+    fun settleUp(fromUserId: String, toUserId: String, amountCents: Int) = viewModelScope.launch {
+        val household = _household.value ?: return@launch
+        if (amountCents <= 0 || fromUserId == toUserId) return@launch
+        // Checked against what these two owe each other, not their household
+        // nets — the payer may be square with the household and still owe here.
+        val pair = ExpenseMath.pairBalances(
+            fromUserId, _roommates.value, _expenses.value, _expenseShares.value, _settlements.value
+        ).find { it.userId == toUserId }
+        val direction = pair?.let {
+            ExpenseMath.settleDirectionForPair(fromUserId, toUserId, it.netCents)
+        }
+        if (direction == null ||
+            direction.fromUserId != fromUserId ||
+            amountCents > direction.maxCents
+        ) return@launch
+        expenseRepo.addSettlement(
+            Settlement(
+                id = UUID.randomUUID().toString(),
+                householdId = household.id,
+                fromUserId = fromUserId,
+                toUserId = toUserId,
+                amountCents = amountCents,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+        refreshExpenses()
+    }
+
+    fun deleteSettlement(settlementId: String) = viewModelScope.launch {
+        expenseRepo.deleteSettlement(settlementId)
+        refreshExpenses()
+    }
+
+    private suspend fun refreshExpenses() {
+        val householdId = _household.value?.id ?: return
+        _expenses.value = expenseRepo.getExpenses(householdId)
+        _expenseShares.value = expenseRepo.getShares(householdId)
+        _settlements.value = expenseRepo.getSettlements(householdId)
+    }
+
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
             initializer {
@@ -652,6 +985,8 @@ class AppViewModel(
                     householdRepo = AppContainer.householdRepository,
                     choreRepo = AppContainer.choreRepository,
                     bulletinRepo = AppContainer.bulletinRepository,
+                    pointsRepo = AppContainer.pointsRepository,
+                    expenseRepo = AppContainer.expenseRepository,
                     notificationDispatcher = AppContainer.notificationDispatcher
                 )
             }
@@ -659,10 +994,23 @@ class AppViewModel(
     }
 }
 
+private const val DAY_MS: Long = 24L * 3600 * 1000
+private const val WEEK_MILLIS: Long = 7L * 24 * 3600 * 1000
+
 private fun currentWeekStart(): Long {
     val cal = Calendar.getInstance()
     cal.firstDayOfWeek = Calendar.MONDAY
     cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+    cal.set(Calendar.HOUR_OF_DAY, 0)
+    cal.set(Calendar.MINUTE, 0)
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
+
+// Midnight (local) at the start of today — the period anchor for DAILY chores.
+private fun todayMidnight(): Long {
+    val cal = Calendar.getInstance()
     cal.set(Calendar.HOUR_OF_DAY, 0)
     cal.set(Calendar.MINUTE, 0)
     cal.set(Calendar.SECOND, 0)

@@ -25,4 +25,8 @@ interface HouseholdRepository {
     suspend fun getBusyBlocks(roommateId: String): List<BusyBlock>
     suspend fun addBusyBlock(block: BusyBlock)
     suspend fun deleteBusyBlock(blockId: String)
+    // HF-11: atomically replaces the roommate's calendar-imported busy blocks
+    // (deletes existing imported ones, inserts the new set). Manual blocks are
+    // untouched. Makes re-import idempotent (no duplicates, removals propagate).
+    suspend fun replaceImportedBusyBlocks(roommateId: String, blocks: List<BusyBlock>)
 }
