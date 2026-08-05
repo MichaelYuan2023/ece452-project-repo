@@ -28,7 +28,11 @@ import kotlinx.coroutines.launch
         BulletinPost::class,
         TradeRequest::class,
     ],
-    version = 4,
+    // 5 adds no columns — it was bumped alongside the Maple Street demo
+    // household and is kept only so devices already sitting at 5 aren't forced
+    // through a downgrade. The seed itself no longer depends on the version:
+    // see DemoHouseholdSeeder.seedIfMissing, which runs at startup instead.
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -41,12 +45,20 @@ abstract class HouseflowDatabase : RoomDatabase() {
     abstract fun assignmentDao(): AssignmentDao
     abstract fun bulletinDao(): BulletinDao
     abstract fun tradeRequestDao(): TradeRequestDao
+    abstract fun seedClaimDao(): SeedClaimDao
 
     companion object {
         @Volatile
         private var INSTANCE: HouseflowDatabase? = null
 
-        // seedScope runs the one-time first-run seed off the main thread.
+        // seedScope runs the first-run seed off the main thread.
+        //
+        // Careful: onCreate below fires only when the database FILE is created.
+        // Room does not call it after a destructive migration, so on any device
+        // that has had the app installed before, this callback never runs again.
+        // The demo household is therefore seeded from AppContainer.init instead
+        // (DemoHouseholdSeeder.seedIfMissing); DatabaseSeeder is left on
+        // onCreate because it only ever mattered for fresh installs.
         fun get(context: Context, seedScope: CoroutineScope): HouseflowDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(

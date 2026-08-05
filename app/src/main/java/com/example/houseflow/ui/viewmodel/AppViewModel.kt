@@ -10,6 +10,7 @@ import com.example.houseflow.data.repository.AuthRepository
 import com.example.houseflow.data.repository.BulletinRepository
 import com.example.houseflow.data.repository.ChoreRepository
 import com.example.houseflow.data.repository.HouseholdRepository
+import com.example.houseflow.data.repository.SeedClaimRepository
 import com.example.houseflow.data.repository.UserRepository
 import com.example.houseflow.model.AssignmentStatus
 import com.example.houseflow.model.BulletinPost
@@ -26,6 +27,7 @@ import com.example.houseflow.model.User
 import com.example.houseflow.notification.NotificationDispatcher
 import com.example.houseflow.util.AssignmentAlgorithm
 import com.example.houseflow.util.ChoreDueTime
+import com.example.houseflow.util.WeekStart
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,7 +36,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Calendar
 import java.util.UUID
 
 // Drives top-level navigation. Derived from auth + household state.
@@ -46,7 +47,9 @@ class AppViewModel(
     private val householdRepo: HouseholdRepository,
     private val choreRepo: ChoreRepository,
     private val bulletinRepo: BulletinRepository,
-    private val notificationDispatcher: NotificationDispatcher
+    private val notificationDispatcher: NotificationDispatcher,
+    // Null in tests and anywhere the demo seed isn't relevant.
+    private val seedClaimRepo: SeedClaimRepository? = null
 ) : ViewModel() {
 
     // Identity from Firebase Auth, restored automatically on launch.
@@ -121,7 +124,7 @@ class AppViewModel(
             initialValue = null
         )
 
-    val weekStart: Long = currentWeekStart()
+    val weekStart: Long = WeekStart.current()
 
     init {
         // Keep identity in sync with Firebase auth state and restore the user's
@@ -133,7 +136,18 @@ class AppViewModel(
                     // Preserve the previously persisted active household — reconstructing
                     // from FirebaseUser alone would otherwise reset it to null every launch.
                     val existing = userRepo.getUser(firebaseUser.uid)
-                    val user = firebaseUser.toUser().copy(activeHouseholdId = existing?.activeHouseholdId)
+                    var user = firebaseUser.toUser().copy(activeHouseholdId = existing?.activeHouseholdId)
+
+                    // First sign-in by the demo household's owner takes over the
+                    // seeded rows, which were written under a placeholder uid
+                    // before any real uid existed. No-op for everyone else.
+                    seedClaimRepo?.claimIfOwner(user.uid, user.email, user.displayName)?.let { claim ->
+                        user = user.copy(
+                            displayName = claim.displayName,
+                            activeHouseholdId = user.activeHouseholdId ?: claim.householdId
+                        )
+                    }
+
                     _currentUser.value = user
                     userRepo.upsertUser(user)
                     restoreHousehold(user)
@@ -652,20 +666,10 @@ class AppViewModel(
                     householdRepo = AppContainer.householdRepository,
                     choreRepo = AppContainer.choreRepository,
                     bulletinRepo = AppContainer.bulletinRepository,
-                    notificationDispatcher = AppContainer.notificationDispatcher
+                    notificationDispatcher = AppContainer.notificationDispatcher,
+                    seedClaimRepo = AppContainer.seedClaimRepository
                 )
             }
         }
     }
-}
-
-private fun currentWeekStart(): Long {
-    val cal = Calendar.getInstance()
-    cal.firstDayOfWeek = Calendar.MONDAY
-    cal.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-    cal.set(Calendar.HOUR_OF_DAY, 0)
-    cal.set(Calendar.MINUTE, 0)
-    cal.set(Calendar.SECOND, 0)
-    cal.set(Calendar.MILLISECOND, 0)
-    return cal.timeInMillis
 }

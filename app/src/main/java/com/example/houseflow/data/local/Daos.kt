@@ -129,6 +129,42 @@ interface TradeRequestDao {
     suspend fun deleteForChore(choreId: String)
 }
 
+// Rewrites the demo seed's placeholder owner uid to a real Firebase uid once
+// the owner actually signs in. The seed has to be written at database-create
+// time, long before we know what uid Firebase will hand out, so every row that
+// references the owner is written under a placeholder and re-pointed here.
+// Always run through SeedClaimRepository, which wraps these in one transaction.
+@Dao
+interface SeedClaimDao {
+
+    @Query("SELECT COUNT(*) FROM memberships WHERE userId = :placeholderUid")
+    suspend fun unclaimedMembershipCount(placeholderUid: String): Int
+
+    // OR REPLACE because (userId, householdId) is the membership primary key —
+    // if the real user somehow already has a row in this household, the seeded
+    // one should lose rather than abort the whole claim.
+    @Query("UPDATE OR REPLACE memberships SET userId = :realUid, displayName = :displayName WHERE userId = :placeholderUid")
+    suspend fun claimMemberships(placeholderUid: String, realUid: String, displayName: String)
+
+    @Query("UPDATE OR REPLACE busy_blocks SET roommateId = :realUid WHERE roommateId = :placeholderUid")
+    suspend fun claimBusyBlocks(placeholderUid: String, realUid: String)
+
+    @Query("UPDATE chores SET createdByRoommateId = :realUid WHERE createdByRoommateId = :placeholderUid")
+    suspend fun claimChores(placeholderUid: String, realUid: String)
+
+    @Query("UPDATE assignments SET assignedToRoommateId = :realUid WHERE assignedToRoommateId = :placeholderUid")
+    suspend fun claimAssignments(placeholderUid: String, realUid: String)
+
+    @Query("UPDATE trade_requests SET fromUserId = :realUid WHERE fromUserId = :placeholderUid")
+    suspend fun claimTradesSent(placeholderUid: String, realUid: String)
+
+    @Query("UPDATE trade_requests SET toUserId = :realUid WHERE toUserId = :placeholderUid")
+    suspend fun claimTradesReceived(placeholderUid: String, realUid: String)
+
+    @Query("DELETE FROM users WHERE uid = :placeholderUid")
+    suspend fun deletePlaceholderUser(placeholderUid: String)
+}
+
 @Dao
 interface BulletinDao {
     @Query("SELECT * FROM bulletin_posts WHERE householdId = :householdId ORDER BY timestamp DESC")

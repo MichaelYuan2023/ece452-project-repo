@@ -1,6 +1,7 @@
 package com.example.houseflow.data
 
 import android.content.Context
+import com.example.houseflow.data.local.DemoHouseholdSeeder
 import com.example.houseflow.data.local.HouseflowDatabase
 import com.example.houseflow.data.repository.AuthRepository
 import com.example.houseflow.data.repository.BulletinRepository
@@ -11,12 +12,14 @@ import com.example.houseflow.data.repository.RoomBulletinRepository
 import com.example.houseflow.data.repository.RoomChoreRepository
 import com.example.houseflow.data.repository.RoomHouseholdRepository
 import com.example.houseflow.data.repository.RoomUserRepository
+import com.example.houseflow.data.repository.SeedClaimRepository
 import com.example.houseflow.data.repository.UserRepository
 import com.example.houseflow.notification.AndroidNotificationDispatcher
 import com.example.houseflow.notification.NotificationDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 // Composition root. Repositories are Room-backed (retiring the in-memory ones in
 // HF-3); init() must be called once from the Application before any ViewModel is
@@ -35,6 +38,8 @@ object AppContainer {
         private set
     lateinit var notificationDispatcher: NotificationDispatcher
         private set
+    lateinit var seedClaimRepository: SeedClaimRepository
+        private set
 
     fun init(context: Context) {
         val seedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -44,5 +49,13 @@ object AppContainer {
         choreRepository = RoomChoreRepository(db.choreDao(), db.assignmentDao(), db.tradeRequestDao())
         bulletinRepository = RoomBulletinRepository(db.bulletinDao())
         notificationDispatcher = AndroidNotificationDispatcher(context.applicationContext)
+        seedClaimRepository = SeedClaimRepository(db)
+
+        // Idempotent, and deliberately not tied to database creation — see the
+        // note in HouseflowDatabase.get(). Runs on seedScope so it never blocks
+        // Application.onCreate; the household lands well before sign-in
+        // finishes, and SeedClaimRepository is what actually attaches it to the
+        // owner's account.
+        seedScope.launch { DemoHouseholdSeeder.seedIfMissing(db) }
     }
 }
