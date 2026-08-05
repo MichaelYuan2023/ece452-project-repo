@@ -56,12 +56,6 @@ object AppContainer {
         expenseRepository = RoomExpenseRepository(db.expenseDao(), db.expenseShareDao(), db.settlementDao())
         notificationDispatcher = AndroidNotificationDispatcher(context.applicationContext)
 
-        // Warm up the database off the main thread at startup. Opening it triggers
-        // any first-run seed / destructive-migration reseed (both run on seedScope),
-        // so demo data is populated before the user signs in and the ViewModel
-        // reads their household — otherwise a reseed triggered lazily by the first
-        // post-login query races restoreHousehold and the user lands on the
-        // "choose a household" gate with an empty list.
         seedScope.launch { runCatching { db.userDao().getAll() } }
     }
 }

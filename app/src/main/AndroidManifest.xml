@@ -3,7 +3,6 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- HF-11: fetching .ics calendar feeds from a URL. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

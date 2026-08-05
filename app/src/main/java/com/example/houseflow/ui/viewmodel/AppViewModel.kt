@@ -262,9 +262,6 @@ class AppViewModel(
         refreshTradeRequests()
         refreshPoints()
         refreshExpenses()
-        // Reconcile the pickup board: mark overdue chores missed and post each
-        // chore's current-period occurrence. Replaces the old manual "post"
-        // button; syncChoreBoard() refreshes assignments at the end.
         syncChoreBoard()
     }
 
