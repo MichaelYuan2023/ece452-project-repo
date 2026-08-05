@@ -52,7 +52,7 @@ fun HomeScreen(
     val leaderboard by vm.leaderboard.collectAsState()
     val assignments by vm.assignments.collectAsState()
     val chores by vm.chores.collectAsState()
-    val balances by vm.balances.collectAsState()
+    val pairBalances by vm.myPairBalances.collectAsState()
 
     val myUid = currentUser?.uid
     val myChores = assignments.filter {
@@ -61,7 +61,8 @@ fun HomeScreen(
             it.status == AssignmentStatus.PENDING
     }
     val topThree = leaderboard.take(3)
-    val myNet = balances.find { it.userId == myUid }?.netCents ?: 0
+    val owedByMeCents = pairBalances.filter { it.netCents < 0 }.sumOf { -it.netCents }
+    val owedToMeCents = pairBalances.filter { it.netCents > 0 }.sumOf { it.netCents }
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScreenHeader(
@@ -184,12 +185,14 @@ fun HomeScreen(
                 SectionHeader("Expenses", actionLabel = "Open", onAction = onOpenExpenses)
             }
             item {
-                val owed = myNet > 0
-                val settled = myNet == 0
+                // Mirrors the Expenses summary: what you owe leads, and the two
+                // sides are never netted against each other, so this can't read
+                // "All settled up" while a debt to one roommate is outstanding.
+                val settled = owedByMeCents == 0 && owedToMeCents == 0
                 val accent = when {
                     settled -> MaterialTheme.colorScheme.onSurfaceVariant
-                    owed -> MaterialTheme.colorScheme.secondary
-                    else -> MaterialTheme.colorScheme.error
+                    owedByMeCents > 0 -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.secondary
                 }
                 HFCard(onClick = onOpenExpenses) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -198,18 +201,29 @@ fun HomeScreen(
                             Text(
                                 when {
                                     settled -> "All settled up"
-                                    owed -> "You're owed"
-                                    else -> "You owe"
+                                    owedByMeCents > 0 -> "You owe"
+                                    else -> "You're owed"
                                 },
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                ExpenseMath.formatCents(kotlin.math.abs(myNet)),
+                                ExpenseMath.formatCents(
+                                    if (owedByMeCents > 0) owedByMeCents else owedToMeCents
+                                ),
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = accent,
                                 fontWeight = FontWeight.SemiBold
                             )
+                            // Surfaced only when both sides are live, so the
+                            // headline figure is never the whole story.
+                            if (owedByMeCents > 0 && owedToMeCents > 0) {
+                                Text(
+                                    "you're owed ${ExpenseMath.formatCents(owedToMeCents)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

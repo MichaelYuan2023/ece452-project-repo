@@ -186,6 +186,18 @@ class AppViewModel(
             ExpenseMath.balances(roommates, expenses, shares, settlements)
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // What the current user owes, and is owed by, each roommate individually.
+    // Settling is a two-party act, so the expenses UI works from these rather
+    // than from the household-wide nets above, which can read as "all settled"
+    // while real debts remain between individual pairs.
+    val myPairBalances: StateFlow<List<ExpenseMath.PairBalance>> =
+        combine(
+            _currentUser, _roommates, _expenses, _expenseShares, _settlements
+        ) { user, roommates, expenses, shares, settlements ->
+            val uid = user?.uid ?: return@combine emptyList()
+            ExpenseMath.pairBalances(uid, roommates, expenses, shares, settlements)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     init {
         // Keep identity in sync with Firebase auth state and restore the user's
         // household so returning members skip the join screen.
@@ -920,9 +932,25 @@ class AppViewModel(
     }
 
     // Records a repayment from [fromUserId] to [toUserId], offsetting balances.
+    // The pair's current balances have to agree that the payer is the one in
+    // debt and that the amount does not overshoot — a settlement recorded the
+    // wrong way round or for too much pushes both parties further apart instead
+    // of toward zero.
     fun settleUp(fromUserId: String, toUserId: String, amountCents: Int) = viewModelScope.launch {
         val household = _household.value ?: return@launch
         if (amountCents <= 0 || fromUserId == toUserId) return@launch
+        // Checked against what these two owe each other, not their household
+        // nets — the payer may be square with the household and still owe here.
+        val pair = ExpenseMath.pairBalances(
+            fromUserId, _roommates.value, _expenses.value, _expenseShares.value, _settlements.value
+        ).find { it.userId == toUserId }
+        val direction = pair?.let {
+            ExpenseMath.settleDirectionForPair(fromUserId, toUserId, it.netCents)
+        }
+        if (direction == null ||
+            direction.fromUserId != fromUserId ||
+            amountCents > direction.maxCents
+        ) return@launch
         expenseRepo.addSettlement(
             Settlement(
                 id = UUID.randomUUID().toString(),

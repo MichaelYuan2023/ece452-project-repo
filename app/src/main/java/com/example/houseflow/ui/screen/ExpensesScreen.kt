@@ -38,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -62,7 +64,7 @@ import com.example.houseflow.ui.viewmodel.AppViewModel
 fun ExpensesScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
     val expenses by vm.expenses.collectAsState()
     val shares by vm.expenseShares.collectAsState()
-    val balances by vm.balances.collectAsState()
+    val pairBalances by vm.myPairBalances.collectAsState()
     val roommates by vm.roommates.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
     val currentUserRole by vm.currentUserRole.collectAsState()
@@ -71,7 +73,11 @@ fun ExpensesScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
     var showAdd by remember { mutableStateOf(false) }
     var settleWith by remember { mutableStateOf<String?>(null) } // preselected counterparty userId, or "" for none
 
-    val myBalance = balances.find { it.userId == myUid }?.netCents ?: 0
+    // Gross totals, deliberately not netted against each other: owing Bob $15
+    // while Cara owes you $15 is two open debts, not "all settled up".
+    val owedByMeCents = pairBalances.filter { it.netCents < 0 }.sumOf { -it.netCents }
+    val owedToMeCents = pairBalances.filter { it.netCents > 0 }.sumOf { it.netCents }
+    val anyoneToSettleWith = pairBalances.any { it.netCents != 0 }
 
     Scaffold(
         topBar = {
@@ -104,7 +110,7 @@ fun ExpensesScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { Spacer(Modifier.height(4.dp)) }
-            item { SummaryCard(myBalance) }
+            item { SummaryCard(owedByMeCents = owedByMeCents, owedToMeCents = owedToMeCents) }
 
             item {
                 Row(
@@ -117,17 +123,17 @@ fun ExpensesScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
-                    if (roommates.size > 1) {
+                    if (roommates.size > 1 && anyoneToSettleWith) {
                         TextButton(onClick = { settleWith = "" }) { Text("Settle up") }
                     }
                 }
             }
-            items(balances, key = { it.userId }) { balance ->
+            items(pairBalances, key = { it.userId }) { pair ->
                 BalanceRow(
-                    name = if (balance.userId == myUid) "${balance.displayName} (you)" else balance.displayName,
-                    netCents = balance.netCents,
-                    canSettle = balance.userId != myUid,
-                    onSettle = { settleWith = balance.userId }
+                    name = pair.displayName,
+                    netCents = pair.netCents,
+                    canSettle = pair.netCents != 0,
+                    onSettle = { settleWith = pair.userId }
                 )
             }
 
@@ -177,14 +183,17 @@ fun ExpensesScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
     }
 
     settleWith?.let { preselected ->
-        val others = roommates.filter { it.userId != myUid }
+        // Only offer counterparties there is something to settle with, so the
+        // dialog can never be opened on a pairing that is already square.
+        val others = pairBalances.filter { it.netCents != 0 }
         if (others.isNotEmpty() && myUid != null) {
             SettleUpDialog(
+                myUserId = myUid,
                 others = others,
                 preselectedUserId = preselected.ifEmpty { null },
                 onDismiss = { settleWith = null },
-                onConfirm = { toUserId, amountCents ->
-                    vm.settleUp(myUid, toUserId, amountCents)
+                onConfirm = { fromUserId, toUserId, amountCents ->
+                    vm.settleUp(fromUserId, toUserId, amountCents)
                     settleWith = null
                 }
             )
@@ -194,14 +203,17 @@ fun ExpensesScreen(vm: AppViewModel, onBack: (() -> Unit)? = null) {
     }
 }
 
+// Shows what you owe and what you are owed side by side rather than a single
+// netted figure. The two can be nonzero at once — and netting them was what let
+// a household with real outstanding debts read as "all settled up".
 @Composable
-private fun SummaryCard(myNetCents: Int) {
-    val owed = myNetCents > 0
-    val settled = myNetCents == 0
+private fun SummaryCard(owedByMeCents: Int, owedToMeCents: Int) {
+    val settled = owedByMeCents == 0 && owedToMeCents == 0
+    // Lead with what's owed, since that's the side you can act on.
     val accent = when {
         settled -> MaterialTheme.colorScheme.onSurfaceVariant
-        owed -> MaterialTheme.colorScheme.secondary
-        else -> MaterialTheme.colorScheme.error
+        owedByMeCents > 0 -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.secondary
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -209,27 +221,28 @@ private fun SummaryCard(myNetCents: Int) {
         elevation = CardDefaults.cardElevation(0.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                when {
-                    settled -> "You're all settled up"
-                    owed -> "You're owed"
-                    else -> "You owe"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (!settled) {
+        if (settled) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    ExpenseMath.formatCents(kotlin.math.abs(myNetCents)),
-                    style = MaterialTheme.typography.displaySmall,
-                    color = accent
+                    "You're all settled up",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                Text(
-                    "$0.00",
-                    style = MaterialTheme.typography.displaySmall,
-                    color = accent
+                Text("$0.00", style = MaterialTheme.typography.displaySmall, color = accent)
+            }
+        } else {
+            Row(modifier = Modifier.padding(16.dp)) {
+                SummaryFigure(
+                    label = "You owe",
+                    cents = owedByMeCents,
+                    accent = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryFigure(
+                    label = "You're owed",
+                    cents = owedToMeCents,
+                    accent = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -237,10 +250,28 @@ private fun SummaryCard(myNetCents: Int) {
 }
 
 @Composable
+private fun SummaryFigure(label: String, cents: Int, accent: Color, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            ExpenseMath.formatCents(cents),
+            style = MaterialTheme.typography.headlineMedium,
+            // A zero side is muted so the side that needs attention stands out.
+            color = if (cents == 0) MaterialTheme.colorScheme.onSurfaceVariant else accent
+        )
+    }
+}
+
+@Composable
 private fun BalanceRow(name: String, netCents: Int, canSettle: Boolean, onSettle: () -> Unit) {
+    // Phrased against you specifically — these are pairwise, not household-wide.
     val label = when {
-        netCents > 0 -> "owed ${ExpenseMath.formatCents(netCents)}"
-        netCents < 0 -> "owes ${ExpenseMath.formatCents(-netCents)}"
+        netCents > 0 -> "owes you ${ExpenseMath.formatCents(netCents)}"
+        netCents < 0 -> "you owe ${ExpenseMath.formatCents(-netCents)}"
         else -> "settled"
     }
     val color = when {
@@ -271,7 +302,7 @@ private fun BalanceRow(name: String, netCents: Int, canSettle: Boolean, onSettle
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
-            if (canSettle && netCents != 0) {
+            if (canSettle) {
                 TextButton(onClick = onSettle) { Text("Settle") }
             }
         }
@@ -448,10 +479,11 @@ private fun AddExpenseDialog(
 
 @Composable
 private fun SettleUpDialog(
-    others: List<Roommate>,
+    myUserId: String,
+    others: List<ExpenseMath.PairBalance>,
     preselectedUserId: String?,
     onDismiss: () -> Unit,
-    onConfirm: (toUserId: String, amountCents: Int) -> Unit
+    onConfirm: (fromUserId: String, toUserId: String, amountCents: Int) -> Unit
 ) {
     val names = others.map { it.displayName }
     var index by remember {
@@ -459,9 +491,21 @@ private fun SettleUpDialog(
             others.indexOfFirst { it.userId == preselectedUserId }.coerceAtLeast(0)
         )
     }
+    val other = others[index]
+    // Who pays whom comes from what the two of you owe each other, never
+    // assumed — a payment recorded backwards moves you both further apart.
+    val direction = ExpenseMath.settleDirectionForPair(myUserId, other.userId, other.netCents)
+    val iAmPaying = direction?.fromUserId == myUserId
+
+    // Prefill the full settleable amount; re-prefill when the counterparty changes.
     var amount by remember { mutableStateOf("") }
+    LaunchedEffect(direction) {
+        amount = direction?.let { ExpenseMath.formatCents(it.maxCents).removePrefix("$") } ?: ""
+    }
+
     val amountCents = ExpenseMath.parseAmountToCents(amount)
-    val canSave = amountCents != null
+    val overMax = amountCents != null && direction != null && amountCents > direction.maxCents
+    val canSave = amountCents != null && direction != null && !overMax
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -469,17 +513,31 @@ private fun SettleUpDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Record money you paid a roommate to settle up.",
+                    when {
+                        direction == null -> "You and ${other.displayName} have nothing to settle."
+                        iAmPaying -> "Record money you paid ${other.displayName} to settle up."
+                        else -> "Record money ${other.displayName} paid you to settle up."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                SimpleDropdown("Paid to", names, index) { index = it }
+                SimpleDropdown(if (iAmPaying) "Paid to" else "Paid by", names, index) { index = it }
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { amount = it },
                     label = { Text("Amount") },
                     prefix = { Text("$") },
-                    isError = amount.isNotBlank() && amountCents == null,
+                    isError = (amount.isNotBlank() && amountCents == null) || overMax,
+                    supportingText = when {
+                        overMax -> {
+                            { Text("At most ${ExpenseMath.formatCents(direction!!.maxCents)} can be settled here") }
+                        }
+                        direction != null -> {
+                            { Text("Up to ${ExpenseMath.formatCents(direction.maxCents)}") }
+                        }
+                        else -> null
+                    },
+                    enabled = direction != null,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
@@ -489,7 +547,9 @@ private fun SettleUpDialog(
         confirmButton = {
             TextButton(
                 enabled = canSave,
-                onClick = { if (canSave) onConfirm(others[index].userId, amountCents!!) }
+                onClick = {
+                    if (canSave) onConfirm(direction!!.fromUserId, direction.toUserId, amountCents!!)
+                }
             ) {
                 Icon(Icons.Default.Check, contentDescription = null)
                 Spacer(Modifier.height(0.dp))

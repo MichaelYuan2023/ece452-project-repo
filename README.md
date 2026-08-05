@@ -32,3 +32,6 @@
 * Team members will discuss conflicts respectfully.
 * We will try to resolve conflicts through collaboration or compromise.
 * If needed, we will ask course staff for guidance.
+
+# AI Disclosure Statement
+AID Statement: Artificial Intelligence Tool: Claude Code; Execution: Coding assistance for features, debugging, and testing. Creating a run-time instruction file.
