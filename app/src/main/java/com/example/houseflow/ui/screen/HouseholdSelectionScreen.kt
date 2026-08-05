@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,9 +27,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,15 +44,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.houseflow.model.Household
+import com.example.houseflow.ui.components.IconChip
 import com.example.houseflow.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.launch
 
-// Lets a user pick from households they already belong to, or create/join a
-// new one. Shown as the initial gate (NEEDS_HOUSEHOLD) with no back action, or
-// on top of an active session via Settings (onBack closes back to it). Selecting,
-// creating, or joining a household all flip the ViewModel's active household,
-// which — when reached from the initial gate — advances session state
-// automatically, so there's no explicit onDone callback.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onSignOut: () -> Unit = {}) {
@@ -62,10 +60,20 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onS
     var joinError by remember { mutableStateOf(false) }
     var joinLoading by remember { mutableStateOf(false) }
 
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+        focusedLabelColor = MaterialTheme.colorScheme.primary
+    )
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Households") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                ),
                 navigationIcon = {
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
@@ -85,65 +93,66 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onS
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item { Spacer(Modifier.height(8.dp)) }
+            item { Spacer(Modifier.height(4.dp)) }
 
             if (households.isNotEmpty()) {
                 item {
                     Text(
                         "Your Households",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        style = MaterialTheme.typography.titleMedium
                     )
                 }
                 items(households, key = { it.id }) { household ->
                     HouseholdRow(household, onClick = { vm.selectHousehold(household.id) })
                 }
                 item {
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(4.dp))
                 }
             }
 
             item {
                 Text(
                     "Create a Household",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.titleMedium
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = newHouseholdName,
                     onValueChange = { newHouseholdName = it },
                     label = { Text("Household name") },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = textFieldColors,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
                         vm.createHousehold(newHouseholdName)
                         newHouseholdName = ""
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = MaterialTheme.shapes.medium,
                     enabled = newHouseholdName.isNotBlank()
                 ) {
-                    Text("Create Household")
+                    Text("Create Household", style = MaterialTheme.typography.labelLarge)
                 }
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                Spacer(Modifier.height(12.dp))
             }
 
             item {
                 Text(
                     "Join a Household",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.titleMedium
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -151,7 +160,7 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onS
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = joinCode,
                     onValueChange = {
@@ -160,6 +169,8 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onS
                     },
                     label = { Text("Invite code") },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.small,
+                    colors = textFieldColors,
                     enabled = !joinLoading,
                     isError = joinError,
                     supportingText = if (joinError) {
@@ -167,7 +178,7 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onS
                     } else null,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
                         joinLoading = true
@@ -177,15 +188,17 @@ fun HouseholdSelectionScreen(vm: AppViewModel, onBack: (() -> Unit)? = null, onS
                             if (!joined) joinError = true
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = MaterialTheme.shapes.medium,
                     enabled = joinCode.isNotBlank() && !joinLoading
                 ) {
-                    Text("Join Household")
+                    Text("Join Household", style = MaterialTheme.typography.labelLarge)
                 }
             }
 
-            item { Spacer(Modifier.height(16.dp)) }
+            item { Spacer(Modifier.height(20.dp)) }
         }
     }
 }
@@ -198,14 +211,15 @@ private fun HouseholdRow(household: Household, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(12.dp))
+            IconChip(icon = Icons.Default.Home, tint = MaterialTheme.colorScheme.primary, size = 40.dp)
+            Spacer(Modifier.width(14.dp))
             Column {
                 Text(household.name, style = MaterialTheme.typography.titleMedium)
                 Text(

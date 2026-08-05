@@ -2,25 +2,49 @@ package com.example.houseflow.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+// ─── Neutrals ────────────────────────────────────────────────────────────────
 val Canvas = Color(0xFFFFFFFF)
-val Ink = Color(0xFF111111)
-val Body = Color(0xFF374151)
-val Muted = Color(0xFF6B7280)
-val Hairline = Color(0xFFE5E7EB)
-val HairlineSoft = Color(0xFFF3F4F6)
-val SurfaceCard = Color(0xFFF5F5F5)
-val SurfaceSoft = Color(0xFFF8F9FA)
+val AppBackground = Color(0xFFF8F8FC)  // faint lavender tint — warm but not gray
+val Ink = Color(0xFF1A1A2E)            // dark navy-black for headings
+val Body = Color(0xFF44475A)           // softened body text
+val Muted = Color(0xFF71748A)          // captions, secondary text
+val Hairline = Color(0xFFE8E8F0)       // slightly blue-tinted border
+val HairlineSoft = Color(0xFFF2F2F8)   // very subtle separator
+val SurfaceCard = Color(0xFFF4F4FA)    // raised surface variant
+val SurfaceSoft = Color(0xFFF9F9FD)    // mid-ground containers
 
-val BrandBlue = Color(0xFF3B82F6)
-val BrandBlueSoft = Color(0xFFEFF6FF)
-val Violet = Color(0xFF8B5CF6)
-val VioletSoft = Color(0xFFF5F3FF)
-val Emerald = Color(0xFF34D399)
-val EmeraldSoft = Color(0xFFECFDF5)
-val Orange = Color(0xFFFB923C)
-val Pink = Color(0xFFEC4899)
+// ─── Primary: Indigo ─────────────────────────────────────────────────────────
+val BrandIndigo = Color(0xFF5B5BD6)
+val BrandIndigoSoft = Color(0xFFF0F0FF)
 
-val Success = Color(0xFF10B981)
-val Warning = Color(0xFFF59E0B)
-val ErrorRed = Color(0xFFEF4444)
-val ErrorRedSoft = Color(0xFFFEF2F2)
+// ─── Secondary: Teal ─────────────────────────────────────────────────────────
+val Teal = Color(0xFF2DB8A1)
+val TealSoft = Color(0xFFE8FAF6)
+
+// ─── Tertiary: Mauve ─────────────────────────────────────────────────────────
+val Mauve = Color(0xFF8E6EC2)
+val MauveSoft = Color(0xFFF5F0FF)
+
+// ─── Error: Coral ────────────────────────────────────────────────────────────
+val Coral = Color(0xFFE5574F)
+val CoralSoft = Color(0xFFFEF0EF)
+
+// ─── Semantic accents ────────────────────────────────────────────────────────
+val Success = Color(0xFF2DB8A1)        // alias of Teal
+val Warning = Color(0xFFE5930B)
+val Orange = Color(0xFFF97B3C)
+val Pink = Color(0xFFD94E8F)
+
+// ─── Gamification: Amber/Gold ────────────────────────────────────────────────
+val Gold = Color(0xFFE5930B)
+val GoldSoft = Color(0xFFFEF6E0)
+
+// ─── Legacy aliases (keep for any file that still references old names) ──────
+val BrandBlue = BrandIndigo
+val BrandBlueSoft = BrandIndigoSoft
+val Emerald = Teal
+val EmeraldSoft = TealSoft
+val Violet = Mauve
+val VioletSoft = MauveSoft
+val ErrorRed = Coral
+val ErrorRedSoft = CoralSoft

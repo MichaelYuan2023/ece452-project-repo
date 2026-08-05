@@ -4,8 +4,12 @@ import com.example.houseflow.data.local.AssignmentDao
 import com.example.houseflow.data.local.BulletinDao
 import com.example.houseflow.data.local.BusyBlockDao
 import com.example.houseflow.data.local.ChoreDao
+import com.example.houseflow.data.local.ExpenseDao
+import com.example.houseflow.data.local.ExpenseShareDao
 import com.example.houseflow.data.local.HouseholdDao
 import com.example.houseflow.data.local.MembershipDao
+import com.example.houseflow.data.local.PointsDao
+import com.example.houseflow.data.local.SettlementDao
 import com.example.houseflow.data.local.TradeRequestDao
 import com.example.houseflow.data.local.UserDao
 import com.example.houseflow.model.AssignmentStatus
@@ -13,9 +17,13 @@ import com.example.houseflow.model.BulletinPost
 import com.example.houseflow.model.BusyBlock
 import com.example.houseflow.model.Chore
 import com.example.houseflow.model.ChoreAssignment
+import com.example.houseflow.model.Expense
+import com.example.houseflow.model.ExpenseShare
 import com.example.houseflow.model.Household
 import com.example.houseflow.model.HouseholdRole
+import com.example.houseflow.model.PointsEntry
 import com.example.houseflow.model.Roommate
+import com.example.houseflow.model.Settlement
 import com.example.houseflow.model.TradeRequest
 import com.example.houseflow.model.TradeStatus
 import java.util.UUID
@@ -86,6 +94,11 @@ class RoomHouseholdRepository(
     override suspend fun addBusyBlock(block: BusyBlock) = busyBlockDao.insert(block)
 
     override suspend fun deleteBusyBlock(blockId: String) = busyBlockDao.delete(blockId)
+
+    override suspend fun replaceImportedBusyBlocks(roommateId: String, blocks: List<BusyBlock>) {
+        busyBlockDao.deleteImportedForRoommate(roommateId)
+        busyBlockDao.insertAll(blocks)
+    }
 }
 
 // Excludes visually ambiguous characters (0/O, 1/I).
@@ -147,4 +160,43 @@ class RoomBulletinRepository(private val bulletinDao: BulletinDao) : BulletinRep
     override suspend fun addPost(post: BulletinPost) = bulletinDao.insert(post)
 
     override suspend fun deletePost(postId: String) = bulletinDao.delete(postId)
+}
+
+class RoomPointsRepository(private val pointsDao: PointsDao) : PointsRepository {
+    override suspend fun award(entry: PointsEntry) { pointsDao.insert(entry) }
+
+    override suspend fun getEntries(householdId: String): List<PointsEntry> =
+        pointsDao.getForHousehold(householdId)
+
+    override suspend fun deleteForChore(choreId: String) = pointsDao.deleteForChore(choreId)
+}
+
+class RoomExpenseRepository(
+    private val expenseDao: ExpenseDao,
+    private val expenseShareDao: ExpenseShareDao,
+    private val settlementDao: SettlementDao,
+) : ExpenseRepository {
+
+    override suspend fun addExpense(expense: Expense, shares: List<ExpenseShare>) {
+        expenseDao.insert(expense)
+        expenseShareDao.insertAll(shares)
+    }
+
+    override suspend fun getExpenses(householdId: String): List<Expense> =
+        expenseDao.getForHousehold(householdId)
+
+    override suspend fun getShares(householdId: String): List<ExpenseShare> =
+        expenseShareDao.getForHousehold(householdId)
+
+    override suspend fun deleteExpense(expenseId: String) {
+        expenseShareDao.deleteForExpense(expenseId)
+        expenseDao.delete(expenseId)
+    }
+
+    override suspend fun getSettlements(householdId: String): List<Settlement> =
+        settlementDao.getForHousehold(householdId)
+
+    override suspend fun addSettlement(settlement: Settlement) = settlementDao.insert(settlement)
+
+    override suspend fun deleteSettlement(settlementId: String) = settlementDao.delete(settlementId)
 }

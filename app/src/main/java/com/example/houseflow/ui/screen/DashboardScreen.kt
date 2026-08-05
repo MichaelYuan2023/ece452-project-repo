@@ -28,11 +28,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +45,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.houseflow.ui.components.EmptyState
+import com.example.houseflow.ui.components.IconChip
+import com.example.houseflow.ui.components.Pill
 import com.example.houseflow.ui.viewmodel.AppViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,12 +58,21 @@ fun DashboardScreen(vm: AppViewModel) {
     var showDialog by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("House Bulletin") }) },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("House Bulletin") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = MaterialTheme.shapes.large
             ) {
                 Icon(Icons.Default.Add, contentDescription = "New post")
             }
@@ -69,39 +83,25 @@ fun DashboardScreen(vm: AppViewModel) {
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.Campaign,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.height(48.dp).width(48.dp)
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "No posts yet.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Share house events, announcements, or reminders.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                EmptyState(
+                    icon = Icons.Default.Campaign,
+                    title = "No posts yet",
+                    subtitle = "Share house events, announcements, or reminders."
+                )
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item { Spacer(Modifier.height(8.dp)) }
+                item { Spacer(Modifier.height(4.dp)) }
                 items(bulletinPosts, key = { it.id }) { post ->
                     BulletinPostCard(
                         post = post,
                         onDelete = { vm.deleteBulletinPost(post.id) }
                     )
                 }
-                item { Spacer(Modifier.height(8.dp)) }
+                item { Spacer(Modifier.height(12.dp)) }
             }
         }
     }
@@ -123,7 +123,7 @@ private fun BulletinPostCard(
     onDelete: () -> Unit
 ) {
     val containerColor = if (post.isEvent)
-        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
     else
         MaterialTheme.colorScheme.surface
 
@@ -131,48 +131,44 @@ private fun BulletinPostCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (post.isEvent) Icons.Default.Event else Icons.Default.Campaign,
-                    contentDescription = null,
+                IconChip(
+                    icon = if (post.isEvent) Icons.Default.Event else Icons.Default.Campaign,
                     tint = if (post.isEvent) MaterialTheme.colorScheme.tertiary
-                    else MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.primary,
+                    size = 36.dp
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    val accent = if (post.isEvent) MaterialTheme.colorScheme.tertiary
-                    else MaterialTheme.colorScheme.primary
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = accent.copy(alpha = 0.12f),
-                        contentColor = accent
-                    ) {
-                        Text(
-                            if (post.isEvent) "Event" else "Announcement",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
+                    Pill(
+                        text = if (post.isEvent) "Event" else "Announcement",
+                        tint = if (post.isEvent) MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(6.dp))
                     Text(post.title, style = MaterialTheme.typography.titleSmall)
                 }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete post")
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete post",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             if (post.message.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(10.dp))
                 Text(
                     post.message,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 "Posted by ${post.authorName}",
                 style = MaterialTheme.typography.labelSmall,
@@ -195,18 +191,20 @@ private fun CreateBulletinPostDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Bulletin Post") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text("Title") },
                     singleLine = true,
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = message,
                     onValueChange = { message = it },
                     label = { Text("Details (optional)") },
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 4
                 )
