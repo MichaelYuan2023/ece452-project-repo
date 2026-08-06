@@ -34,4 +34,4 @@
 * If needed, we will ask course staff for guidance.
 
 # AI Disclosure Statement
-AID Statement: Artificial Intelligence Tool: Claude Code; Execution: Coding assistance for features, debugging, and testing. Creating a run-time instruction file. Information Collection: Help with surfacing repository code sections where requirements were implemented.
+AID Statement: Artificial Intelligence Tool: Claude Code; Execution: Coding assistance for features, debugging, and testing. Creating a run-time instruction file. Information Collection: Help with surfacing repository code sections where requirements were implemented. Architectural Support: Help with clarifying how different architectures are interacting with each other.
